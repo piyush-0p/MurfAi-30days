@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Voice Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .app-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .app-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .app-subtitle {
+            color: #718096;
+            font-size: 1.1rem;
+            margin-bottom: 40px;
+            line-height: 1.6;
+        }
+        
+        .session-info {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .session-info h4 {
+            color: #2d3748;
+            margin-bottom: 8px;
+            font-size: 1rem;
+        }
+        
+        .session-id {
+            font-family: 'Courier New', monospace;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .config-section {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 30px;
+            display: grid;
+            gap: 20px;
+            grid-template-columns: 1fr 1fr;
+        }
+        
+        @media (max-width: 640px) {
+            .config-section {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .form-group label {
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 0.9rem;
+        }
+        
+        .form-input {
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s;
+            background: white;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .status-indicator {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 16px 24px;
+            margin-bottom: 24px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+        
+        .status-idle {
+            background: #f0fff4;
+            color: #22543d;
+            border-color: #68d391;
+        }
+        
+        .status-recording {
+            background: #fff5f5;
+            color: #c53030;
+            border-color: #feb2b2;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-processing {
+            background: #fffaf0;
+            color: #c05621;
+            border-color: #fbd38d;
+        }
+        
+        .status-complete {
+            background: #ebf8ff;
+            color: #2b6cb0;
+            border-color: #90cdf4;
+        }
+        
+        .status-error {
+            background: #fed7d7;
+            color: #c53030;
+            border-color: #fc8181;
+        }
+        
+        .auto-recording {
+            background: #e6fffa;
+            color: #234e52;
+            border-color: #81e6d9;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .record-button {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin: 20px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .record-button:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 60%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .record-button:hover:before {
+            opacity: 1;
+        }
+        
+        .record-button.idle {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            transform: scale(1);
+        }
+        
+        .record-button.recording {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: white;
+            animation: recordPulse 1.5s infinite;
+            transform: scale(1.1);
+        }
+        
+        .record-button.processing {
+            background: linear-gradient(135deg, #ffa502 0%, #ff6348 100%);
+            color: white;
+            animation: spin 2s linear infinite;
+        }
+        
+        .record-button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+        
+        @keyframes recordPulse {
+            0%, 100% { 
+                transform: scale(1.1);
+                box-shadow: 0 8px 24px rgba(255, 107, 107, 0.4);
+            }
+            50% { 
+                transform: scale(1.15);
+                box-shadow: 0 12px 32px rgba(255, 107, 107, 0.6);
+            }
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .timer-display {
+            font-family: 'Courier New', monospace;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #c53030;
+            margin: 16px 0;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .timer-display.visible {
+            opacity: 1;
+        }
+        
+        .chat-history {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            margin: 24px 0;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 2px solid #e2e8f0;
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .chat-history::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .chat-history::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        
+        .chat-history::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+        
+        .chat-history::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+        
+        .chat-message {
+            margin: 16px 0;
+            padding: 16px 20px;
+            border-radius: 18px;
+            max-width: 80%;
+            word-wrap: break-word;
+            animation: fadeInUp 0.3s ease;
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .chat-message.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 6px;
+        }
+        
+        .chat-message.assistant {
+            background: #f7fafc;
+            color: #2d3748;
+            margin-right: auto;
+            border: 2px solid #e2e8f0;
+            border-bottom-left-radius: 6px;
+        }
+        
+        .chat-message.system {
+            background: #fffaf0;
+            color: #c05621;
+            margin: 8px auto;
+            text-align: center;
+            border: 2px solid #fbd38d;
+            font-style: italic;
+        }
+        
+        .timestamp {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 8px;
+        }
+        
+        .controls-section {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+        
+        .clear-button {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .clear-button:hover {
+            background: #c53030;
+            transform: translateY(-2px);
+        }
+        
+        .empty-state {
+            text-align: center;
+            color: #718096;
+            font-style: italic;
+            padding: 40px 20px;
+        }
+        
+        .features-info {
+            background: #ebf8ff;
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 30px;
+            border-left: 4px solid #3182ce;
+        }
+        
+        .features-info h4 {
+            color: #2b6cb0;
+            margin-bottom: 16px;
+            font-size: 1.1rem;
+        }
+        
+        .features-list {
+            text-align: left;
+            color: #2d3748;
+            line-height: 1.6;
+        }
+        
+        .features-list ul {
+            padding-left: 20px;
+        }
+        
+        .features-list li {
+            margin: 8px 0;
+        }
+        
+        .pipeline-info {
+            background: #f0fff4;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            border: 1px solid #9ae6b4;
+            font-size: 0.9rem;
+            color: #22543d;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <h1 class="app-title">🤖 AI Voice Assistant</h1>
+        <p class="app-subtitle">
+            Have natural conversations with AI that remembers your chat history.<br>
+            Speak naturally and get intelligent responses in real-time.
+        </p>
+        
+        <div class="session-info">
+            <h4>🔗 Session ID:</h4>
+            <span class="session-id" id="sessionId">Loading...</span>
+            <p style="margin-top: 8px; font-size: 0.9rem; color: #718096;">
+                Your conversation is saved for this session. Share the URL to continue on another device!
+            </p>
+        </div>
+        
+        <div class="config-section">
+            <div class="form-group">
+                <label for="agentMurfApiKey">🔑 Murf API Key</label>
+                <input 
+                    type="password" 
+                    id="agentMurfApiKey" 
+                    class="form-input"
+                    placeholder="Enter your Murf API key..."
+                    value="ap2_1633e776-b13b-4a5d-9826-1001621abe70"
+                >
+            </div>
+            <div class="form-group">
+                <label for="agentVoiceSelect">🎤 AI Voice</label>
+                <select id="agentVoiceSelect" class="form-input">
+                    <option value="en-US-cooper">Cooper (US English)</option>
+                    <option value="en-US-aria">Aria (US English)</option>
+                    <option value="en-US-davis">Davis (US English)</option>
+                    <option value="en-US-jenny">Jenny (US English)</option>
+                    <option value="en-US-guy">Guy (US English)</option>
+                    <option value="en-US-sara">Sara (US English)</option>
+                    <option value="en-US-emma">Emma (US English)</option>
+                    <option value="en-US-brian">Brian (US English)</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="status-indicator status-idle" id="agentRecordingStatus">
+            🟢 Ready to start conversation
+        </div>
+        
+        <div class="controls-section">
+            <button 
+                id="mainRecordButton" 
+                class="record-button idle" 
+                onclick="toggleRecording()"
+            >
+                🎤 Start
+            </button>
+            
+            <button class="clear-button" onclick="clearChatHistory()">
+                🗑️ Clear Chat
+            </button>
+        </div>
+        
+        <div class="timer-display" id="agentRecordingTimer">00:00</div>
+        
+        <div class="chat-history" id="chatHistory">
+            <div class="empty-state">
+                No conversation yet. Click the microphone button to start chatting!
+            </div>
+        </div>
+        
+        <!-- Hidden audio player for AI responses -->
+        <audio id="agentAudio" preload="none" onended="onAgentAudioEnded()" style="display: none;"></audio>
+        
+        <div class="features-info">
+            <h4>✨ Features</h4>
+            <div class="features-list">
+                <ul>
+                    <li><strong>Conversational Memory:</strong> AI remembers your entire conversation</li>
+                    <li><strong>Natural Flow:</strong> Auto-recording after each AI response</li>
+                    <li><strong>Smart Context:</strong> Responses improve based on chat history</li>
+                    <li><strong>Session Persistence:</strong> Continue conversations across devices</li>
+                    <li><strong>Voice Continuity:</strong> Consistent AI voice throughout</li>
+                </ul>
+            </div>
+            <div class="pipeline-info">
+                <strong>Pipeline:</strong> Voice → Transcript → AI Context + History → Response → Voice → Auto-Continue
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

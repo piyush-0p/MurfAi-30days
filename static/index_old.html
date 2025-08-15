@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MurfAI Challenge - Frontend</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fafafa;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #response {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .data-item {
+            padding: 15px;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+        .error {
+            color: #dc3545;
+            background-color: #f8d7da;
+            border-left-color: #dc3545;
+        }
+        .tts-form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .tts-input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 80px;
+            font-family: Arial, sans-serif;
+        }
+        .tts-input:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .form-group label {
+            font-weight: bold;
+            color: #333;
+        }
+        .voice-select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            background-color: white;
+        }
+        .audio-player {
+            margin-top: 20px;
+            width: 100%;
+        }
+        .audio-player audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+        .tts-submit {
+            background-color: #28a745;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .tts-submit:hover {
+            background-color: #218838;
+        }
+        .tts-submit:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .echo-bot {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .recording-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .record-btn {
+            background-color: #dc3545;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            min-width: 150px;
+        }
+        .record-btn:hover {
+            background-color: #c82333;
+        }
+        .record-btn:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .record-btn.recording {
+            background-color: #fd7e14;
+            animation: pulse 1.5s infinite;
+        }
+        .record-btn.recording:hover {
+            background-color: #e8650e;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        .recording-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status-idle {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status-recording {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .status-recorded {
+            background-color: #cce5ff;
+            color: #004085;
+            border: 1px solid #99d3ff;
+        }
+        .status-processing {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .echo-audio-player {
+            margin-top: 20px;
+        }
+        .echo-audio-player audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+        .recording-timer {
+            font-family: monospace;
+            font-size: 18px;
+            font-weight: bold;
+            color: #dc3545;
+        }
+        .chat-history {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .chat-message {
+            padding: 10px 15px;
+            border-radius: 15px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .chat-message.user {
+            background-color: #007bff;
+            color: white;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+        .chat-message.assistant {
+            background-color: #e9ecef;
+            color: #333;
+            align-self: flex-start;
+            margin-right: auto;
+        }
+        .chat-message .timestamp {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+        .session-info {
+            font-family: monospace;
+        }
+        .auto-recording {
+            background-color: #17a2b8;
+            color: white;
+            animation: pulse 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 MurfAI Challenge - Full Stack App</h1>
+        
+        <div class="section">
+            <h2>API Testing</h2>
+            <p>Test the FastAPI backend endpoints:</p>
+            <button onclick="testHelloAPI()">Test Hello API</button>
+            <button onclick="fetchData()">Fetch Data</button>
+            <button onclick="clearResponse()">Clear Response</button>
+            <div id="response"></div>
+        </div>
+
+        <div class="section">
+            <h2>Data Display</h2>
+            <p>Data fetched from the backend:</p>
+            <div id="dataContainer">
+                <p class="loading">Click "Fetch Data" to load items...</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🎤 Text-to-Speech Generator</h2>
+            <p>Convert your text to speech using Murf's AI voices:</p>
+            
+            <div class="tts-form">
+                <div class="form-group">
+                    <label for="ttsText">Enter Text to Convert:</label>
+                    <textarea 
+                        id="ttsText" 
+                        class="tts-input" 
+                        placeholder="Type your text here... (e.g., 'Hello! This is a test of the text-to-speech functionality.')"
+                        maxlength="1000"
+                    ></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="voiceSelect">Select Voice:</label>
+                    <select id="voiceSelect" class="voice-select">
+                        <option value="en-US-cooper">Cooper (Male, US)</option>
+                        <option value="en-US-samantha">Samantha (Female, US)</option>
+                        <option value="en-US-natalie">Natalie (Female, US)</option>
+                        <option value="en-US-miles">Miles (Male, US)</option>
+                        <option value="en-UK-ruby">Ruby (Female, UK)</option>
+                        <option value="en-UK-theo">Theo (Male, UK)</option>
+                        <option value="en-AU-kylie">Kylie (Female, AU)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="apiKey">Murf API Key:</label>
+                    <input 
+                        type="password" 
+                        id="apiKey" 
+                        class="tts-input" 
+                        placeholder="Enter your Murf API key"
+                        value="ap2_1633e776-b13b-4a5d-9826-1001621abe70"
+                        style="min-height: auto; font-family: monospace;"
+                    />
+                </div>
+                
+                <button id="generateTTSBtn" class="tts-submit" onclick="generateTTS()">
+                    🎵 Generate Speech
+                </button>
+            </div>
+            
+            <div id="ttsResponse"></div>
+            
+            <div id="audioPlayer" class="audio-player" style="display: none;">
+                <h3>🔊 Generated Audio:</h3>
+                <audio id="generatedAudio" controls preload="none">
+                    Your browser does not support the audio element.
+                </audio>
+                <p><small>Audio will play automatically when generated.</small></p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h1>🎙️ Echo Bot v2</h1>
+            <p>Record your voice and hear it played back with a Murf AI voice!</p>
+            
+            <div class="echo-bot">
+                <!-- Murf Configuration for Echo Bot -->
+                <div class="config-section">
+                    <div class="form-group">
+                        <label for="echoMurfApiKey">Murf API Key:</label>
+                        <input type="password" id="echoMurfApiKey" placeholder="Enter your Murf API key...">
+                    </div>
+                    <div class="form-group">
+                        <label for="echoVoiceSelect">Voice Selection:</label>
+                        <select id="echoVoiceSelect">
+                            <option value="en-US-cooper">Cooper (US English)</option>
+                            <option value="en-US-aria">Aria (US English)</option>
+                            <option value="en-US-davis">Davis (US English)</option>
+                            <option value="en-US-jenny">Jenny (US English)</option>
+                            <option value="en-US-guy">Guy (US English)</option>
+                            <option value="en-US-sara">Sara (US English)</option>
+                            <option value="en-US-emma">Emma (US English)</option>
+                            <option value="en-US-brian">Brian (US English)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="recording-status status-idle" id="recordingStatus">
+                    🟢 Ready to record
+                </div>
+                
+                <div class="recording-controls">
+                    <button id="startRecordBtn" class="record-btn" onclick="startRecording()">
+                        🔴 Start Recording
+                    </button>
+                    <button id="stopRecordBtn" class="record-btn" onclick="stopRecording()" disabled>
+                        ⏹️ Stop Recording
+                    </button>
+                    <div id="recordingTimer" class="recording-timer" style="display: none;">
+                        00:00
+                    </div>
+                </div>
+                
+                <div id="echoBotResponse"></div>
+                
+                <div id="echoAudioPlayer" class="echo-audio-player" style="display: none;">
+                    <h3>🔊 Your Echo with Murf Voice:</h3>
+                    <audio id="echoAudio" controls preload="none">
+                        Your browser does not support the audio element.
+                    </audio>
+                    <p><small>Click play to hear your voice echoed back with Murf AI!</small></p>
+                    <button onclick="clearRecording()" style="margin-top: 10px; background-color: #6c757d;">
+                        🗑️ Clear Recording
+                    </button>
+                </div>
+                
+                <div style="margin-top: 15px; padding: 15px; background-color: #e7f3ff; border-radius: 5px; border-left: 4px solid #007bff;">
+                    <h4>📋 Echo Bot v2 Instructions:</h4>
+                    <ol>
+                        <li>Enter your <strong>Murf API key</strong> above</li>
+                        <li>Select your preferred <strong>voice</strong></li>
+                        <li>Click <strong>"Start Recording"</strong> to begin</li>
+                        <li>Speak into your microphone</li>
+                        <li>Click <strong>"Stop Recording"</strong> when done</li>
+                        <li>Wait for transcription and Murf voice generation</li>
+                        <li>Listen to your echo with the new voice!</li>
+                    </ol>
+                    <p><small><strong>How it works:</strong> Your voice → Speech-to-Text → Murf TTS → Playback</small></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h1>🤖 Voice-to-Voice AI Chat</h1>
+            <p>Talk to AI! Record your question and get an intelligent audio response powered by Gemini AI.</p>
+            
+            <div class="echo-bot">
+                <!-- Murf Configuration for AI Chat -->
+                <div class="config-section">
+                    <div class="form-group">
+                        <label for="aiChatMurfApiKey">Murf API Key:</label>
+                        <input type="password" id="aiChatMurfApiKey" placeholder="Enter your Murf API key...">
+                    </div>
+                    <div class="form-group">
+                        <label for="aiChatVoiceSelect">AI Voice Selection:</label>
+                        <select id="aiChatVoiceSelect">
+                            <option value="en-US-cooper">Cooper (US English)</option>
+                            <option value="en-US-aria">Aria (US English)</option>
+                            <option value="en-US-davis">Davis (US English)</option>
+                            <option value="en-US-jenny">Jenny (US English)</option>
+                            <option value="en-US-guy">Guy (US English)</option>
+                            <option value="en-US-sara">Sara (US English)</option>
+                            <option value="en-US-emma">Emma (US English)</option>
+                            <option value="en-US-brian">Brian (US English)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="recording-status status-idle" id="aiChatRecordingStatus">
+                    🟢 Ready to record your question
+                </div>
+                
+                <div class="recording-controls">
+                    <button id="aiChatStartRecordBtn" class="record-btn" onclick="startAIChatRecording()">
+                        🔴 Start Recording
+                    </button>
+                    <button id="aiChatStopRecordBtn" class="record-btn" onclick="stopAIChatRecording()" disabled>
+                        ⏹️ Stop Recording
+                    </button>
+                    <div id="aiChatRecordingTimer" class="recording-timer" style="display: none;">
+                        00:00
+                    </div>
+                </div>
+                
+                <div id="aiChatResponse"></div>
+                
+                <div id="aiChatAudioPlayer" class="echo-audio-player" style="display: none;">
+                    <h3>🤖 AI Response Audio:</h3>
+                    <audio id="aiChatAudio" controls preload="none">
+                        Your browser does not support the audio element.
+                    </audio>
+                    <p><small>AI's intelligent response to your question!</small></p>
+                    <button onclick="clearAIChat()" style="margin-top: 10px; background-color: #6c757d;">
+                        🗑️ Clear Chat
+                    </button>
+                </div>
+                
+                <div style="margin-top: 15px; padding: 15px; background-color: #f0f8ff; border-radius: 5px; border-left: 4px solid #4169e1;">
+                    <h4>🧠 Voice-to-Voice AI Instructions:</h4>
+                    <ol>
+                        <li>Enter your <strong>Murf API key</strong> above</li>
+                        <li>Select the <strong>AI voice</strong> for responses</li>
+                        <li>Click <strong>"Start Recording"</strong> to ask a question</li>
+                        <li>Speak your question clearly</li>
+                        <li>Click <strong>"Stop Recording"</strong> when done</li>
+                        <li>Wait for AI processing (transcription + thinking + voice generation)</li>
+                        <li>Listen to the AI's intelligent audio response!</li>
+                    </ol>
+                    <p><small><strong>AI Pipeline:</strong> Your voice → Speech-to-Text → Gemini AI → Murf TTS → AI Voice Response</small></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h1>🎯 Conversational AI Agent</h1>
+            <p>Have a continuous conversation with AI! The agent remembers your chat history and provides contextual responses.</p>
+            
+            <div class="session-info" style="margin-bottom: 20px; padding: 15px; background-color: #f0f8ff; border-radius: 5px; border-left: 4px solid #4169e1;">
+                <h4>🔗 Session Info:</h4>
+                <p><strong>Session ID:</strong> <span id="sessionId">Loading...</span></p>
+                <p><small>Your conversation history is stored for this session. Share the URL to continue on another device!</small></p>
+            </div>
+            
+            <div class="echo-bot">
+                <!-- Murf Configuration for Conversational Agent -->
+                <div class="config-section">
+                    <div class="form-group">
+                        <label for="agentMurfApiKey">Murf API Key:</label>
+                        <input type="password" id="agentMurfApiKey" placeholder="Enter your Murf API key..." value="ap2_1633e776-b13b-4a5d-9826-1001621abe70">
+                    </div>
+                    <div class="form-group">
+                        <label for="agentVoiceSelect">AI Voice Selection:</label>
+                        <select id="agentVoiceSelect">
+                            <option value="en-US-cooper">Cooper (US English)</option>
+                            <option value="en-US-aria">Aria (US English)</option>
+                            <option value="en-US-davis">Davis (US English)</option>
+                            <option value="en-US-jenny">Jenny (US English)</option>
+                            <option value="en-US-guy">Guy (US English)</option>
+                            <option value="en-US-sara">Sara (US English)</option>
+                            <option value="en-US-emma">Emma (US English)</option>
+                            <option value="en-US-brian">Brian (US English)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="recording-status status-idle" id="agentRecordingStatus">
+                    🟢 Ready to start conversation
+                </div>
+                
+                <div class="recording-controls">
+                    <button id="agentStartRecordBtn" class="record-btn" onclick="startAgentRecording()">
+                        🔴 Start Recording
+                    </button>
+                    <button id="agentStopRecordBtn" class="record-btn" onclick="stopAgentRecording()" disabled>
+                        ⏹️ Stop Recording
+                    </button>
+                    <div id="agentRecordingTimer" class="recording-timer" style="display: none;">
+                        00:00
+                    </div>
+                    <button id="clearChatBtn" class="record-btn" onclick="clearChatHistory()" style="background-color: #6c757d; margin-left: 10px;">
+                        🗑️ Clear Chat
+                    </button>
+                </div>
+                
+                <div id="chatHistory" class="chat-history" style="margin: 20px 0; max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; padding: 15px; background-color: #fafafa;">
+                    <p style="text-align: center; color: #666; font-style: italic;">No conversation yet. Start by recording your first message!</p>
+                </div>
+                
+                <div id="agentAudioPlayer" class="echo-audio-player" style="display: none;">
+                    <h3>🤖 AI Response Audio:</h3>
+                    <audio id="agentAudio" controls preload="none" onended="onAgentAudioEnded()">
+                        Your browser does not support the audio element.
+                    </audio>
+                    <p><small>AI's contextual response based on conversation history!</small></p>
+                </div>
+                
+                <div style="margin-top: 15px; padding: 15px; background-color: #f0f8ff; border-radius: 5px; border-left: 4px solid #4169e1;">
+                    <h4>🎯 Conversational Agent Features:</h4>
+                    <ul>
+                        <li><strong>Memory:</strong> Remembers your entire conversation</li>
+                        <li><strong>Context:</strong> Provides relevant responses based on chat history</li>
+                        <li><strong>Auto-Continue:</strong> Automatically starts recording after AI response</li>
+                        <li><strong>Session Persistence:</strong> Continue conversations using the same URL</li>
+                        <li><strong>Voice Continuity:</strong> Consistent AI voice throughout the conversation</li>
+                    </ul>
+                    <p><small><strong>Pipeline:</strong> Voice → Transcript → Chat History + Gemini AI → TTS → Auto-Record Next</small></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Application Info</h2>
+            <p><strong>Backend:</strong> FastAPI (Python)</p>
+            <p><strong>Frontend:</strong> HTML, CSS, JavaScript</p>
+            <p><strong>Server:</strong> Uvicorn</p>
+            <p><strong>Port:</strong> 8000</p>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
