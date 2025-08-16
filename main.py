@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form, Path
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form, Path, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -1074,6 +1074,34 @@ async def agent_chat(
             success=False,
             error=f"Agent chat processing failed: {str(e)}"
         )
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time communication.
+    Clients can connect and send messages, server will echo them back.
+    """
+    await websocket.accept()
+    print("🔌 WebSocket connection established")
+    
+    try:
+        while True:
+            # Wait for message from client
+            message = await websocket.receive_text()
+            print(f"📨 Received message: {message}")
+            
+            # Echo the message back to the client
+            response = f"Echo: {message}"
+            await websocket.send_text(response)
+            print(f"📤 Sent response: {response}")
+            
+    except WebSocketDisconnect:
+        print("🔌 WebSocket connection closed")
+    except Exception as e:
+        print(f"❌ WebSocket error: {str(e)}")
+        await websocket.close()
+
 
 if __name__ == "__main__":
     import uvicorn

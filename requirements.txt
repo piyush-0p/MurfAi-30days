@@ -4,5 +4,3 @@ httpx==0.28.1
 aiofiles==24.1.0
 python-multipart==0.0.12
 assemblyai==0.37.0
-pydantic==2.5.0
-pydantic-settings==2.1.0

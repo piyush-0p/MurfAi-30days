@@ -15,34 +15,12 @@ This application is an advanced AI voice assistant that allows users to:
 
 ```
 MurfAIChallenge/
-├── app/                    # Application package
-│   ├── __init__.py        
-│   ├── core/              # Core configuration and utilities
-│   │   ├── __init__.py
-│   │   └── config.py      # Settings and logging configuration
-│   ├── schemas/           # Pydantic models for requests/responses
-│   │   └── __init__.py    # All API schemas and data models
-│   ├── services/          # Third-party service integrations
-│   │   ├── __init__.py
-│   │   ├── speech_to_text.py  # AssemblyAI service
-│   │   ├── text_to_speech.py  # Murf AI service
-│   │   └── llm.py         # Google Gemini service
-│   └── routers/           # API route handlers
-│       ├── __init__.py
-│       ├── audio.py       # Audio upload and transcription
-│       ├── tts.py         # Text-to-speech endpoints
-│       ├── chat.py        # LLM and chat endpoints
-│       └── health.py      # Health check endpoints
-├── main.py                # Original monolithic application
-├── main_refactored.py     # New structured application entry point
-├── test_api.py           # API testing script
-├── requirements.txt       # Python dependencies
-├── .env.example          # Environment variables template
-├── README.md             # Project documentation
-├── app.log               # Application logs (generated)
-├── generated_audio.mp3   # Sample generated audio file
-├── uploads/              # Directory for uploaded audio files
-│   └── *.webm           # Recorded audio files
+├── main.py                 # FastAPI backend server with all API endpoints
+├── requirements.txt        # Python dependencies
+├── README.md              # Project documentation
+├── generated_audio.mp3    # Sample generated audio file
+├── uploads/               # Directory for uploaded audio files
+│   └── *.webm            # Recorded audio files
 └── static/               # Frontend files
     ├── index.html        # Main web application
     ├── index_new.html    # Alternative UI version
@@ -50,27 +28,6 @@ MurfAIChallenge/
     ├── app.js           # JavaScript functionality
     └── fallback.mp3     # Fallback audio file
 ```
-
-## 🏗️ Architecture Overview
-
-The refactored application follows a clean, modular architecture:
-
-### 📁 **Core Components**
-- **`app/core/config.py`** - Centralized configuration management with environment variables
-- **`app/schemas/`** - Pydantic models for type safety and data validation
-- **`app/services/`** - Separated business logic for each third-party service
-- **`app/routers/`** - API endpoints organized by functionality
-
-### 🔧 **Service Layer**
-- **AssemblyAI Service** - Handles speech-to-text operations
-- **Murf AI Service** - Manages text-to-speech generation
-- **Gemini Service** - Provides LLM capabilities for conversations
-
-### 📡 **API Structure**
-- **Health Router** - System status and health checks
-- **Audio Router** - File uploads and transcription
-- **TTS Router** - Text-to-speech generation
-- **Chat Router** - Conversational AI with session management
 
 ## ✨ Features
 
@@ -150,29 +107,16 @@ pip install -r requirements.txt
 ```
 
 ### 2. Environment Variables
-Create a `.env` file based on the provided template:
+Set up the following environment variables for full functionality:
 
-```bash
-# Copy the environment template
-cp .env.example .env
-
-# Edit the .env file with your API keys
-nano .env  # or use your preferred editor
-```
-
-Required environment variables:
 ```bash
 # Required API Keys
-ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
-GEMINI_API_KEY=your_gemini_api_key_here
+export ASSEMBLYAI_API_KEY="your_assemblyai_api_key_here"
+export GEMINI_API_KEY="your_gemini_api_key_here"
 
-# Optional Configuration
-HOST=127.0.0.1
-PORT=8000
-DEBUG=true
-LOG_LEVEL=INFO
-UPLOAD_DIR=uploads
-MAX_FILE_SIZE=26214400  # 25MB
+# Optional: Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+echo 'export ASSEMBLYAI_API_KEY="your_assemblyai_api_key_here"' >> ~/.zshrc
+echo 'export GEMINI_API_KEY="your_gemini_api_key_here"' >> ~/.zshrc
 ```
 
 #### How to get API Keys:
@@ -193,25 +137,11 @@ MAX_FILE_SIZE=26214400  # 25MB
 - Sign up at [Murf AI](https://murf.ai/) to get your API key
 
 ### 3. Run the Application
-
-#### Option 1: Refactored Version (Recommended)
 ```bash
-# Start the refactored FastAPI server
-python main_refactored.py
+# Start the FastAPI server
+python main.py
 
 # The server will start on http://localhost:8000
-```
-
-#### Option 2: Original Version
-```bash
-# Start the original monolithic server
-python main.py
-```
-
-#### Testing the API
-```bash
-# Test the API endpoints
-python test_api.py
 ```
 
 ### 4. Access the Application
@@ -263,28 +193,18 @@ python test_api.py
 
 ## 🔧 Development
 
-### Project Structure Benefits
-- **Separation of Concerns** - Services, schemas, and routes are clearly separated
-- **Type Safety** - Pydantic models ensure data validation
-- **Testability** - Modular structure makes unit testing easier
-- **Maintainability** - Clean code organization and proper logging
-- **Scalability** - Easy to add new services and endpoints
-
 ### Running in Development Mode
+The server runs with auto-reload enabled by default:
 ```bash
-# The refactored server runs with auto-reload enabled by default
-python main_refactored.py
-
+python main.py
 # Server automatically restarts on code changes
-# Logs are written to both console and app.log file
 ```
 
-### Code Quality Features
-- **Proper Logging** - Structured logging with different levels
-- **Error Handling** - Comprehensive exception handling
-- **Type Hints** - Full type annotations for better IDE support
-- **Configuration Management** - Environment-based settings
-- **API Documentation** - Auto-generated docs at `/docs`
+### File Structure Details
+- **main.py**: Contains all FastAPI routes and business logic
+- **static/**: Frontend assets served directly by FastAPI
+- **uploads/**: Automatically created directory for audio uploads
+- **requirements.txt**: All Python dependencies with versions
 
 ### Adding New Features
 1. Add new routes in `main.py`
