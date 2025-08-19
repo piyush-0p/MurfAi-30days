@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Working Transcription Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { text-align: center; color: #333; }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 10px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .stop { background: #dc3545; }
+        .stop:hover { background: #c82333; }
+        
+        .status {
+            text-align: center;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.recording { background: #cce5ff; color: #004085; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        
+        .messages {
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            border-radius: 5px;
+            padding: 20px;
+            height: 200px;
+            overflow-y: auto;
+            margin: 20px 0;
+        }
+        .transcript-final {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 3px;
+        }
+        .message {
+            padding: 5px;
+            margin: 2px 0;
+            font-size: 14px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Real-Time Transcription Test</h1>
+        
+        <div class="controls">
+            <button id="startBtn" onclick="startRecording()">🎙️ Start Recording</button>
+            <button id="stopBtn" onclick="stopRecording()" disabled class="stop">⏹️ Stop Recording</button>
+            <button onclick="clearMessages()">🧹 Clear</button>
+        </div>
+        
+        <div id="status" class="status">Connecting to server...</div>
+        
+        <div class="messages" id="messages">
+            <div style="color: #666; font-style: italic;">All messages will appear here...</div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let mediaRecorder = null;
+        let isRecording = false;
+        
+        const statusDiv = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const messagesDiv = document.getElementById('messages');
+        
+        function addMessage(text, type = 'message') {
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${text}`;
+            
+            // Clear placeholder
+            if (messagesDiv.children.length === 1 && messagesDiv.firstChild.style.color) {
+                messagesDiv.innerHTML = '';
+            }
+            
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function updateStatus(text, className) {
+            statusDiv.textContent = text;
+            statusDiv.className = `status ${className}`;
+        }
+        
+        function connectWebSocket() {
+            addMessage('Connecting to WebSocket...', 'message');
+            ws = new WebSocket('ws://localhost:8000/ws/transcribe');
+            
+            ws.onopen = function() {
+                addMessage('✅ WebSocket connected successfully', 'message');
+                updateStatus('Connected to server', 'connected');
+                startBtn.disabled = false;
+            };
+            
+            ws.onmessage = function(event) {
+                const message = event.data;
+                addMessage(`📥 RECEIVED: ${message}`, 'message');
+                
+                // Handle different message types
+                if (message.startsWith('TRANSCRIPT:')) {
+                    const transcript = message.substring(11).trim();
+                    addMessage(`🎯 TRANSCRIPTION: "${transcript}"`, 'transcript-final');
+                }
+            };
+            
+            ws.onclose = function() {
+                addMessage('❌ WebSocket connection closed', 'message');
+                updateStatus('Disconnected from server', 'error');
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+            };
+            
+            ws.onerror = function(error) {
+                addMessage(`❌ WebSocket error: ${error}`, 'message');
+                updateStatus('Connection error', 'error');
+            };
+        }
+        
+        async function startRecording() {
+            if (ws.readyState !== WebSocket.OPEN) {
+                addMessage('❌ WebSocket not connected', 'message');
+                return;
+            }
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        sampleRate: 16000,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+                
+                addMessage('🎙️ Microphone access granted', 'message');
+                
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                        ws.send(event.data);
+                        addMessage(`📤 Sent audio chunk: ${event.data.size} bytes`, 'message');
+                    }
+                };
+                
+                mediaRecorder.start(1000); // 1 second chunks
+                
+                // Send start command
+                ws.send('START_TRANSCRIPTION');
+                addMessage('📤 Sent: START_TRANSCRIPTION', 'message');
+                
+                isRecording = true;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                updateStatus('🎤 Recording... Speak now!', 'recording');
+                
+            } catch (error) {
+                addMessage(`❌ Microphone error: ${error.message}`, 'message');
+                updateStatus('Microphone access denied', 'error');
+            }
+        }
+        
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                
+                ws.send('STOP_TRANSCRIPTION');
+                addMessage('📤 Sent: STOP_TRANSCRIPTION', 'message');
+                
+                isRecording = false;
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                updateStatus('Recording stopped. Processing...', 'connected');
+            }
+        }
+        
+        function clearMessages() {
+            messagesDiv.innerHTML = '<div style="color: #666; font-style: italic;">All messages will appear here...</div>';
+        }
+        
+        // Initialize
+        window.onload = function() {
+            connectWebSocket();
+        };
+    </script>
+</body>
+</html>

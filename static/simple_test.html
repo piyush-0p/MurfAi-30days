@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple WebSocket Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        #log { background: #f0f0f0; padding: 10px; height: 300px; overflow-y: scroll; }
+        button { padding: 10px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h2>WebSocket Messages Test</h2>
+    <button onclick="connect()">Connect</button>
+    <button onclick="startRecord()">Start</button>
+    <button onclick="stopRecord()">Stop</button>
+    <button onclick="clearLog()">Clear</button>
+    
+    <div id="log"></div>
+
+    <script>
+        let ws = null;
+        
+        function log(msg) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += new Date().toLocaleTimeString() + ': ' + msg + '<br>';
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function connect() {
+            ws = new WebSocket('ws://localhost:8000/ws/transcribe');
+            
+            ws.onopen = () => log('WebSocket CONNECTED');
+            ws.onmessage = (e) => log('RECEIVED: ' + e.data);
+            ws.onclose = () => log('WebSocket CLOSED');
+            ws.onerror = (e) => log('ERROR: ' + e);
+        }
+        
+        function startRecord() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('START_TRANSCRIPTION');
+                log('SENT: START_TRANSCRIPTION');
+            } else {
+                log('WebSocket not connected');
+            }
+        }
+        
+        function stopRecord() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('STOP_TRANSCRIPTION');
+                log('SENT: STOP_TRANSCRIPTION');
+            } else {
+                log('WebSocket not connected');
+            }
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        // Auto-connect
+        setTimeout(connect, 100);
+    </script>
+</body>
+</html>

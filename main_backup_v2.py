@@ -10,7 +10,16 @@ import uuid
 from datetime import datetime
 import aiofiles
 import assemblyai as aai
-# Remove v3 imports - we'll use the working RealtimeTranscriber with SSL fix
+from assemblyai.streaming.v3 import (
+    StreamingClient,
+    StreamingClientOptions,
+    StreamingEvents,
+    StreamingParameters,
+    BeginEvent,
+    TurnEvent,
+    TerminationEvent,
+    StreamingError
+)
 import asyncio
 import threading
 import queue
@@ -18,7 +27,6 @@ import tempfile
 import subprocess
 import wave
 import io
-import ssl
 
 app = FastAPI(title="MurfAI Challenge API")
 
@@ -1223,167 +1231,153 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe_endpoint(websocket: WebSocket):
     """
-    WebSocket endpoint for batch audio transcription using AssemblyAI standard API.
-    This approach is more reliable than real-time streaming.
+    WebSocket endpoint for real-time audio streaming with AssemblyAI transcription.
+    Accepts WebM audio chunks and converts them to PCM for AssemblyAI.
     """
     await websocket.accept()
     print("🔌 WebSocket transcription connection established")
     
     # Initialize session
     session_id = str(uuid.uuid4())[:8]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     print(f"🎯 Starting transcription session: {session_id}")
     
-    # Accumulate WebM chunks for batch processing
-    webm_chunks = []
-    is_recording = False
+    # AssemblyAI streaming transcriber
+    transcriber = None
+    webm_chunks = []  # Accumulate WebM chunks for conversion
     
-    async def transcribe_batch():
-        """Transcribe accumulated chunks using standard AssemblyAI API"""
-        nonlocal webm_chunks
+    async def send_to_client(message):
+        """Helper to send messages to WebSocket client safely"""
+        try:
+            await websocket.send_text(message)
+        except Exception as e:
+            print(f"❌ Error sending to client: {e}")
+    
+    def on_open(session_opened: aai.RealtimeSessionOpened):
+        print(f"🟢 AssemblyAI session opened: {session_opened.session_id}")
         
-        if not webm_chunks:
+    def on_data(transcript: aai.RealtimeTranscript):
+        if not transcript.text:
+            return
+            
+        if isinstance(transcript, aai.RealtimeFinalTranscript):
+            print(f"📝 FINAL: {transcript.text}")
+            # Send final transcription to client
+            asyncio.create_task(send_to_client(f"FINAL: {transcript.text}"))
+        else:
+            print(f"📝 PARTIAL: {transcript.text}")
+            # Send partial transcription to client
+            asyncio.create_task(send_to_client(f"PARTIAL: {transcript.text}"))
+    
+    def on_error(error: aai.RealtimeError):
+        print(f"❌ AssemblyAI error: {error}")
+        asyncio.create_task(send_to_client(f"ERROR: {error}"))
+        
+    def on_close():
+        print("🔴 AssemblyAI session closed")
+    
+    async def process_accumulated_audio():
+        """Process accumulated WebM chunks and send PCM to AssemblyAI"""
+        nonlocal webm_chunks, transcriber
+        
+        if not webm_chunks or not transcriber:
             return
         
         try:
-            print(f"� Transcribing batch of {len(webm_chunks)} chunks")
-            
-            # Combine all chunks
+            # Combine all WebM chunks
             combined_webm = accumulate_webm_chunks(webm_chunks)
             
-            if len(combined_webm) < 1000:  # Skip very small chunks
-                print("⚠️ Skipping small audio chunk")
-                return
+            # Convert to PCM
+            pcm_data = convert_webm_to_pcm(combined_webm)
             
-            # Create temporary file
-            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_file:
-                temp_file.write(combined_webm)
-                temp_file_path = temp_file.name
+            if pcm_data:
+                print(f"🔄 Converted {len(combined_webm)} bytes WebM to {len(pcm_data)} bytes PCM")
+                # Send PCM data to AssemblyAI
+                transcriber.stream(pcm_data)
             
-            try:
-                # Use AssemblyAI standard API for transcription
-                transcriber = aai.Transcriber()
-                transcript = transcriber.transcribe(temp_file_path)
-                
-                if transcript.status == aai.TranscriptStatus.error:
-                    error_msg = f"❌ Transcription error: {transcript.error}"
-                    print(error_msg)
-                    try:
-                        await websocket.send_text(f"ERROR: {transcript.error}")
-                        print(f"📤 Sent error to client: {transcript.error}")
-                    except Exception as send_error:
-                        print(f"❌ Failed to send error to client: {send_error}")
-                else:
-                    result_text = transcript.text or ""
-                    if result_text.strip():
-                        print(f"✅ Transcription: {result_text}")
-                        if websocket.client_state.name == "CONNECTED":
-                            try:
-                                await websocket.send_text(f"TRANSCRIPT: {result_text}")
-                                print(f"📤 Sent to client: TRANSCRIPT: {result_text}")
-                                await asyncio.sleep(0.1)  # Small delay to ensure message delivery
-                            except Exception as send_error:
-                                print(f"❌ Failed to send to client: {send_error}")
-                        else:
-                            print(f"⚠️ WebSocket not connected, cannot send transcript")
-                    else:
-                        print("⚠️ No speech detected in audio")
-                        if websocket.client_state.name == "CONNECTED":
-                            try:
-                                await websocket.send_text("INFO: No speech detected")
-                            except Exception as send_error:
-                                print(f"❌ Failed to send to client: {send_error}")
-                        
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(temp_file_path)
-                except:
-                    pass
-                    
             # Clear processed chunks
             webm_chunks = []
             
         except Exception as e:
-            error_msg = f"❌ Batch transcription error: {e}"
-            print(error_msg)
-            await websocket.send_text(f"ERROR: {str(e)}")
+            print(f"❌ Error processing audio: {e}")
     
     try:
-        try:
-            await websocket.send_text(f"🎯 Session {session_id} ready. Send START_TRANSCRIPTION to begin.")
-            print(f"📤 Sent welcome message to client")
-        except Exception as send_error:
-            print(f"❌ Failed to send welcome message: {send_error}")
+        # Initialize AssemblyAI transcriber
+        transcriber = aai.RealtimeTranscriber(
+            sample_rate=16000,
+            on_data=on_data,
+            on_error=on_error,
+            on_open=on_open,
+            on_close=on_close,
+        )
         
-        while True:
-            try:
+        # Connect to AssemblyAI
+        transcriber.connect()
+        print("🚀 Connected to AssemblyAI streaming service")
+        await websocket.send_text(f"Connected! Session: {session_id}. Ready for audio transcription.")
+        
+        # Start periodic audio processing
+        async def periodic_process():
+            while True:
+                await asyncio.sleep(1.0)  # Process every second
+                await process_accumulated_audio()
+        
+        process_task = asyncio.create_task(periodic_process())
+        
+        try:
+            while True:
                 message = await websocket.receive()
                 
                 if message["type"] == "websocket.receive":
                     if message.get("bytes") is not None:
                         # Handle binary audio data (WebM chunks)
-                        if is_recording:
-                            audio_data = message["bytes"]
-                            print(f"🎤 Received WebM chunk: {len(audio_data)} bytes")
-                            webm_chunks.append(audio_data)
-                            
-                            # Process in batches of 20 chunks for better results
-                            if len(webm_chunks) >= 20:
-                                await transcribe_batch()
+                        audio_data = message["bytes"]
+                        print(f"🎤 Received WebM chunk: {len(audio_data)} bytes")
+                        
+                        # Accumulate WebM chunk
+                        webm_chunks.append(audio_data)
                         
                     elif message.get("text") is not None:
                         text_message = message["text"]
                         print(f"📨 Control message: {text_message}")
                         
                         if text_message == "START_TRANSCRIPTION":
-                            is_recording = True
-                            webm_chunks = []  # Reset chunks
-                            try:
-                                await websocket.send_text("🎤 Recording started - speak now")
-                                print(f"📤 Sent to client: Recording started")
-                            except Exception as send_error:
-                                print(f"❌ Failed to send start message: {send_error}")
+                            await websocket.send_text("🎤 Started transcription session")
                             print(f"🎯 Transcription session {session_id} started")
-                            
                         elif text_message == "STOP_TRANSCRIPTION":
-                            is_recording = False
-                            # Process any remaining chunks
-                            if webm_chunks:
-                                await transcribe_batch()
-                            try:
-                                await websocket.send_text("⏹️ Recording stopped")
-                                print(f"📤 Sent to client: Recording stopped")
-                            except Exception as send_error:
-                                print(f"❌ Failed to send stop message: {send_error}")
+                            # Process any remaining audio before stopping
+                            await process_accumulated_audio()
+                            await websocket.send_text("⏹️ Stopped transcription session")
                             print(f"⏹️ Transcription session {session_id} stopped")
-                            
+                            break
                         else:
-                            try:
-                                await websocket.send_text(f"Echo: {text_message}")
-                            except Exception as send_error:
-                                print(f"❌ Failed to send echo: {send_error}")
-                
-                elif message["type"] == "websocket.disconnect":
-                    print(f"🔌 Client disconnected normally")
-                    break
-                    
-            except RuntimeError as e:
-                if "disconnect message has been received" in str(e):
-                    print(f"🔌 Client disconnected")
-                    break
-                else:
-                    raise e
+                            await websocket.send_text(f"Echo: {text_message}")
+                            
+        finally:
+            # Cancel the processing task
+            process_task.cancel()
+            try:
+                await process_task
+            except asyncio.CancelledError:
+                pass
                             
     except WebSocketDisconnect:
-        print("🔌 WebSocket transcription connection closed by client")
+        print("🔌 WebSocket transcription connection closed")
     except Exception as e:
-        print(f"❌ WebSocket transcription error: {str(e)}")
-        # Don't try to send error message if connection is already closed
+        print(f"❌ AssemblyAI transcription setup error: {str(e)}")
+        await websocket.send_text(f"Transcription Setup Error: {str(e)}")
         
     finally:
+        # Clean up AssemblyAI connection
+        if transcriber:
+            try:
+                transcriber.close()
+                print("🔴 AssemblyAI transcriber closed")
+            except Exception as e:
+                print(f"❌ Error closing transcriber: {str(e)}")
+        
         print(f"🔚 Transcription session {session_id} ended")
-
 
 
 if __name__ == "__main__":

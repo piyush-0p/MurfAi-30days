@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AssemblyAI Real-time Transcription</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .app-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            max-width: 900px;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .app-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .app-subtitle {
+            color: #718096;
+            font-size: 1.1rem;
+            margin-bottom: 40px;
+            line-height: 1.6;
+        }
+        
+        .status-indicator {
+            padding: 12px 24px;
+            border-radius: 25px;
+            margin: 20px 0;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .status-idle { background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; }
+        .status-connecting { background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%); color: white; animation: pulse 1.5s infinite; }
+        .status-connected { background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%); color: white; }
+        .status-transcribing { background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%); color: white; animation: recordPulse 1.5s infinite; }
+        .status-error { background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%); color: white; }
+        
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        @keyframes recordPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+        
+        .controls-section {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+        
+        .control-button {
+            padding: 16px 32px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 140px;
+        }
+        
+        .control-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .connect-button { background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%); color: white; }
+        .transcribe-button { background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; }
+        .transcribe-button.recording { background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%); }
+        .clear-button { background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%); color: white; }
+        
+        .transcription-container {
+            background: #1a202c;
+            color: #e2e8f0;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 24px 0;
+            min-height: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 1rem;
+            text-align: left;
+            border: 2px solid #2d3748;
+        }
+        
+        .transcript-entry {
+            margin: 8px 0;
+            padding: 8px 12px;
+            border-radius: 8px;
+            word-wrap: break-word;
+        }
+        
+        .transcript-partial { background: rgba(66, 153, 225, 0.1); border-left: 4px solid #4299e1; color: #90cdf4; font-style: italic; }
+        .transcript-final { background: rgba(72, 187, 120, 0.1); border-left: 4px solid #48bb78; color: #68d391; font-weight: 600; }
+        .transcript-error { background: rgba(245, 101, 101, 0.1); border-left: 4px solid #f56565; color: #fc8181; }
+        .transcript-info { background: rgba(237, 137, 54, 0.1); border-left: 4px solid #ed8936; color: #f6ad55; }
+        
+        .audio-info {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <h1 class="app-title">🎙️ AssemblyAI Real-time Transcription</h1>
+        <p class="app-subtitle">
+            Stream audio to AssemblyAI for real-time speech-to-text transcription.<br>
+            Uses WebSocket streaming for low-latency results.
+        </p>
+        
+        <div class="status-indicator status-idle" id="connectionStatus">
+            🔴 Disconnected
+        </div>
+        
+        <div class="audio-info">
+            <h3>📊 Audio Processing</h3>
+            <p><strong>Format:</strong> Automatically converts to 16kHz, 16-bit, mono PCM for AssemblyAI</p>
+            <p><strong>Latency:</strong> Real-time streaming with partial and final results</p>
+        </div>
+        
+        <div class="controls-section">
+            <button id="connectBtn" class="control-button connect-button" onclick="toggleConnection()">
+                🔌 Connect
+            </button>
+            <button id="transcribeBtn" class="control-button transcribe-button" onclick="toggleTranscription()" disabled>
+                🎤 Start Transcription
+            </button>
+            <button id="clearBtn" class="control-button clear-button" onclick="clearTranscription()">
+                🗑️ Clear
+            </button>
+        </div>
+        
+        <div class="transcription-container" id="transcriptionContainer">
+            <div class="transcript-info">
+                <strong>Real-time Transcription Output</strong><br>
+                Connect and start transcription to see live speech-to-text results here.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let websocket = null;
+        let mediaRecorder = null;
+        let audioStream = null;
+        let isConnected = false;
+        let isTranscribing = false;
+        
+        // DOM elements
+        const connectionStatus = document.getElementById('connectionStatus');
+        const connectBtn = document.getElementById('connectBtn');
+        const transcribeBtn = document.getElementById('transcribeBtn');
+        const transcriptionContainer = document.getElementById('transcriptionContainer');
+        
+        function addTranscriptEntry(text, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `transcript-entry transcript-${type}`;
+            
+            if (type === 'partial') {
+                entry.innerHTML = `[${timestamp}] <em>${text}</em>`;
+            } else if (type === 'final') {
+                entry.innerHTML = `[${timestamp}] <strong>${text}</strong>`;
+            } else if (type === 'error') {
+                entry.innerHTML = `[${timestamp}] ❌ ${text}`;
+            } else {
+                entry.innerHTML = `[${timestamp}] ${text}`;
+            }
+            
+            transcriptionContainer.appendChild(entry);
+            transcriptionContainer.scrollTop = transcriptionContainer.scrollHeight;
+        }
+        
+        function updateConnectionStatus(status, message) {
+            connectionStatus.className = `status-indicator status-${status}`;
+            connectionStatus.textContent = message;
+        }
+        
+        async function toggleConnection() {
+            if (!isConnected) {
+                await connectWebSocket();
+            } else {
+                await disconnectWebSocket();
+            }
+        }
+        
+        async function connectWebSocket() {
+            try {
+                const wsUrl = 'ws://localhost:8000/ws/transcribe';
+                
+                updateConnectionStatus('connecting', '🟡 Connecting...');
+                connectBtn.disabled = true;
+                addTranscriptEntry(`Connecting to ${wsUrl}...`);
+                
+                websocket = new WebSocket(wsUrl);
+                
+                websocket.onopen = function(event) {
+                    isConnected = true;
+                    updateConnectionStatus('connected', '🟢 Connected');
+                    connectBtn.textContent = '🔌 Disconnect';
+                    connectBtn.disabled = false;
+                    transcribeBtn.disabled = false;
+                    addTranscriptEntry('WebSocket connection established!');
+                };
+                
+                websocket.onmessage = function(event) {
+                    const message = event.data;
+                    
+                    if (message.startsWith('PARTIAL:')) {
+                        const text = message.substring(8).trim();
+                        if (text) addTranscriptEntry(text, 'partial');
+                    } else if (message.startsWith('FINAL:')) {
+                        const text = message.substring(6).trim();
+                        if (text) addTranscriptEntry(text, 'final');
+                    } else if (message.startsWith('ERROR:')) {
+                        const text = message.substring(6).trim();
+                        addTranscriptEntry(text, 'error');
+                    } else if (!message.startsWith('Processed')) { // Skip processing confirmations
+                        addTranscriptEntry(message);
+                    }
+                };
+                
+                websocket.onclose = function(event) {
+                    isConnected = false;
+                    updateConnectionStatus('idle', '🔴 Disconnected');
+                    connectBtn.textContent = '🔌 Connect';
+                    connectBtn.disabled = false;
+                    transcribeBtn.disabled = true;
+                    
+                    if (isTranscribing) {
+                        stopTranscription();
+                    }
+                    
+                    addTranscriptEntry(`Connection closed (${event.code})`);
+                };
+                
+                websocket.onerror = function(event) {
+                    addTranscriptEntry('WebSocket error occurred', 'error');
+                    updateConnectionStatus('error', '🔴 Connection Error');
+                };
+                
+            } catch (error) {
+                addTranscriptEntry(`Connection failed: ${error.message}`, 'error');
+                updateConnectionStatus('error', '🔴 Connection Failed');
+                connectBtn.disabled = false;
+            }
+        }
+        
+        async function disconnectWebSocket() {
+            if (websocket && isConnected) {
+                if (isTranscribing) {
+                    await stopTranscription();
+                }
+                websocket.close();
+                websocket = null;
+                addTranscriptEntry('Disconnected by user');
+            }
+        }
+        
+        async function toggleTranscription() {
+            if (!isTranscribing) {
+                await startTranscription();
+            } else {
+                await stopTranscription();
+            }
+        }
+        
+        async function startTranscription() {
+            try {
+                if (!isConnected || !websocket) {
+                    addTranscriptEntry('Cannot start: WebSocket not connected', 'error');
+                    return;
+                }
+                
+                addTranscriptEntry('Requesting microphone access...');
+                
+                // Get audio stream - let browser handle conversion
+                audioStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                
+                // Create MediaRecorder
+                mediaRecorder = new MediaRecorder(audioStream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
+                        // Send the WebM audio data - server will need to convert to PCM
+                        websocket.send(event.data);
+                    }
+                };
+                
+                mediaRecorder.onerror = function(event) {
+                    addTranscriptEntry(`Recording error: ${event.error}`, 'error');
+                };
+                
+                // Send start signal
+                websocket.send('START_TRANSCRIPTION');
+                
+                // Start recording with 250ms chunks
+                mediaRecorder.start(250);
+                
+                // Update UI
+                isTranscribing = true;
+                transcribeBtn.textContent = '🛑 Stop Transcription';
+                transcribeBtn.classList.add('recording');
+                updateConnectionStatus('transcribing', '🔴 Transcribing...');
+                
+                addTranscriptEntry('🎤 Transcription started! Speak into your microphone...');
+                
+            } catch (error) {
+                addTranscriptEntry(`Failed to start: ${error.message}`, 'error');
+                
+                if (error.name === 'NotAllowedError') {
+                    addTranscriptEntry('Microphone access denied', 'error');
+                } else if (error.name === 'NotFoundError') {
+                    addTranscriptEntry('No microphone found', 'error');
+                }
+            }
+        }
+        
+        async function stopTranscription() {
+            try {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                }
+                
+                if (audioStream) {
+                    audioStream.getTracks().forEach(track => track.stop());
+                    audioStream = null;
+                }
+                
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send('STOP_TRANSCRIPTION');
+                }
+                
+                isTranscribing = false;
+                transcribeBtn.textContent = '🎤 Start Transcription';
+                transcribeBtn.classList.remove('recording');
+                updateConnectionStatus('connected', '🟢 Connected');
+                
+                addTranscriptEntry('⏹️ Transcription stopped');
+                
+            } catch (error) {
+                addTranscriptEntry(`Error stopping: ${error.message}`, 'error');
+            }
+        }
+        
+        function clearTranscription() {
+            transcriptionContainer.innerHTML = '<div class="transcript-info"><strong>Transcription cleared</strong></div>';
+        }
+        
+        // Initialize
+        addTranscriptEntry('🎙️ AssemblyAI transcription client ready');
+        addTranscriptEntry('Click "Connect" to start');
+    </script>
+</body>
+</html>

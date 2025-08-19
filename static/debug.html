@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .log {
+            background: #f0f0f0;
+            padding: 20px;
+            border-radius: 5px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Transcription Debug</h1>
+    
+    <button onclick="connect()">Connect</button>
+    <button onclick="testMessage()">Send Test Message</button>
+    <button onclick="startTranscription()">Start Transcription</button>
+    <button onclick="stopTranscription()">Stop Transcription</button>
+    <button onclick="clearLog()">Clear Log</button>
+    
+    <div id="log" class="log"></div>
+
+    <script>
+        let ws = null;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function connect() {
+            if (ws) {
+                ws.close();
+            }
+            
+            log('Connecting to WebSocket...');
+            ws = new WebSocket('ws://localhost:8000/ws/transcribe');
+            
+            ws.onopen = function() {
+                log('✅ WebSocket connected');
+            };
+            
+            ws.onmessage = function(event) {
+                log(`📥 Received: ${event.data}`);
+            };
+            
+            ws.onclose = function() {
+                log('❌ WebSocket closed');
+            };
+            
+            ws.onerror = function(error) {
+                log(`❌ WebSocket error: ${error}`);
+            };
+        }
+        
+        function testMessage() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('Hello from client');
+                log('📤 Sent: Hello from client');
+            } else {
+                log('❌ WebSocket not connected');
+            }
+        }
+        
+        function startTranscription() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('START_TRANSCRIPTION');
+                log('📤 Sent: START_TRANSCRIPTION');
+            } else {
+                log('❌ WebSocket not connected');
+            }
+        }
+        
+        function stopTranscription() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('STOP_TRANSCRIPTION');
+                log('📤 Sent: STOP_TRANSCRIPTION');
+            } else {
+                log('❌ WebSocket not connected');
+            }
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        // Auto-connect when page loads
+        window.onload = function() {
+            connect();
+        };
+    </script>
+</body>
+</html>

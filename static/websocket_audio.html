@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Audio Streaming</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .app-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .app-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .app-subtitle {
+            color: #718096;
+            font-size: 1.1rem;
+            margin-bottom: 40px;
+            line-height: 1.6;
+        }
+        
+        .status-indicator {
+            padding: 12px 24px;
+            border-radius: 25px;
+            margin: 20px 0;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .status-idle {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+        }
+        
+        .status-connecting {
+            background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+            color: white;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .status-connected {
+            background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+            color: white;
+        }
+        
+        .status-recording {
+            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+            color: white;
+            animation: recordPulse 1.5s infinite;
+        }
+        
+        .status-error {
+            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+            color: white;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        @keyframes recordPulse {
+            0%, 100% { 
+                transform: scale(1);
+                box-shadow: 0 8px 24px rgba(245, 101, 101, 0.4);
+            }
+            50% { 
+                transform: scale(1.05);
+                box-shadow: 0 12px 32px rgba(245, 101, 101, 0.6);
+            }
+        }
+        
+        .controls-section {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+        
+        .control-button {
+            padding: 16px 32px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 140px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .control-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .connect-button {
+            background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+            color: white;
+        }
+        
+        .connect-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(66, 153, 225, 0.4);
+        }
+        
+        .record-button {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+        }
+        
+        .record-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(72, 187, 120, 0.4);
+        }
+        
+        .record-button.recording {
+            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+            animation: recordPulse 1.5s infinite;
+        }
+        
+        .stop-button {
+            background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+            color: white;
+        }
+        
+        .stop-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(237, 137, 54, 0.4);
+        }
+        
+        .timer-display {
+            font-family: 'Courier New', monospace;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #e53e3e;
+            margin: 16px 0;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .timer-display.visible {
+            opacity: 1;
+        }
+        
+        .log-container {
+            background: #1a202c;
+            color: #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+        
+        .log-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .log-container::-webkit-scrollbar-track {
+            background: #2d3748;
+            border-radius: 3px;
+        }
+        
+        .log-container::-webkit-scrollbar-thumb {
+            background: #4a5568;
+            border-radius: 3px;
+        }
+        
+        .log-entry {
+            margin: 4px 0;
+            padding: 2px 0;
+        }
+        
+        .log-sent {
+            color: #68d391;
+        }
+        
+        .log-received {
+            color: #90cdf4;
+        }
+        
+        .log-error {
+            color: #fc8181;
+        }
+        
+        .log-info {
+            color: #fbb6ce;
+        }
+        
+        .settings-section {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        
+        .setting-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 12px 0;
+        }
+        
+        .setting-row label {
+            font-weight: 600;
+            color: #2d3748;
+            min-width: 120px;
+        }
+        
+        .setting-row input {
+            padding: 8px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <h1 class="app-title">🎤 WebSocket Audio Streaming</h1>
+        <p class="app-subtitle">
+            Stream audio data from your microphone to the server in real-time using WebSockets.<br>
+            Audio chunks are sent continuously and saved to a file on the server.
+        </p>
+        
+        <div class="status-indicator status-idle" id="connectionStatus">
+            🔴 Disconnected
+        </div>
+        
+        <div class="settings-section">
+            <div class="setting-row">
+                <label for="wsUrl">WebSocket URL:</label>
+                <input type="text" id="wsUrl" value="ws://localhost:8000/ws" placeholder="ws://localhost:8000/ws">
+            </div>
+            <div class="setting-row">
+                <label for="chunkInterval">Chunk Interval (ms):</label>
+                <input type="number" id="chunkInterval" value="250" min="100" max="1000" step="50">
+            </div>
+        </div>
+        
+        <div class="controls-section">
+            <button id="connectBtn" class="control-button connect-button" onclick="toggleConnection()">
+                🔌 Connect
+            </button>
+            <button id="recordBtn" class="control-button record-button" onclick="toggleRecording()" disabled>
+                🎤 Start Recording
+            </button>
+            <button id="clearBtn" class="control-button stop-button" onclick="clearLog()">
+                🗑️ Clear Log
+            </button>
+        </div>
+        
+        <div class="timer-display" id="recordingTimer">00:00</div>
+        
+        <div class="log-container" id="logContainer">
+            <div class="log-entry log-info">Ready to connect. Click 'Connect' to establish WebSocket connection.</div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket and recording state
+        let websocket = null;
+        let mediaRecorder = null;
+        let audioStream = null;
+        let isConnected = false;
+        let isRecording = false;
+        let recordingStartTime = null;
+        let recordingTimer = null;
+        let chunkInterval = null;
+        
+        // DOM elements
+        const connectionStatus = document.getElementById('connectionStatus');
+        const connectBtn = document.getElementById('connectBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const logContainer = document.getElementById('logContainer');
+        const recordingTimerDisplay = document.getElementById('recordingTimer');
+        const wsUrlInput = document.getElementById('wsUrl');
+        const chunkIntervalInput = document.getElementById('chunkInterval');
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        function updateConnectionStatus(status, message) {
+            connectionStatus.className = `status-indicator status-${status}`;
+            connectionStatus.textContent = message;
+        }
+        
+        function updateRecordingTimer() {
+            if (recordingStartTime) {
+                const elapsed = Date.now() - recordingStartTime;
+                const minutes = Math.floor(elapsed / 60000);
+                const seconds = Math.floor((elapsed % 60000) / 1000);
+                recordingTimerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+        }
+        
+        async function toggleConnection() {
+            if (!isConnected) {
+                await connectWebSocket();
+            } else {
+                await disconnectWebSocket();
+            }
+        }
+        
+        async function connectWebSocket() {
+            try {
+                const wsUrl = wsUrlInput.value.trim();
+                if (!wsUrl) {
+                    log('Please enter a valid WebSocket URL', 'error');
+                    return;
+                }
+                
+                updateConnectionStatus('connecting', '🟡 Connecting...');
+                connectBtn.disabled = true;
+                log(`Connecting to ${wsUrl}...`, 'info');
+                
+                websocket = new WebSocket(wsUrl);
+                
+                websocket.onopen = function(event) {
+                    isConnected = true;
+                    updateConnectionStatus('connected', '🟢 Connected');
+                    connectBtn.textContent = '🔌 Disconnect';
+                    connectBtn.disabled = false;
+                    recordBtn.disabled = false;
+                    log('WebSocket connection established successfully!', 'info');
+                };
+                
+                websocket.onmessage = function(event) {
+                    log(`Received: ${event.data}`, 'received');
+                };
+                
+                websocket.onclose = function(event) {
+                    isConnected = false;
+                    updateConnectionStatus('idle', '🔴 Disconnected');
+                    connectBtn.textContent = '🔌 Connect';
+                    connectBtn.disabled = false;
+                    recordBtn.disabled = true;
+                    
+                    if (isRecording) {
+                        stopRecording();
+                    }
+                    
+                    log(`WebSocket connection closed. Code: ${event.code}`, 'info');
+                };
+                
+                websocket.onerror = function(event) {
+                    log('WebSocket error occurred', 'error');
+                    updateConnectionStatus('error', '🔴 Connection Error');
+                };
+                
+            } catch (error) {
+                log(`Failed to connect: ${error.message}`, 'error');
+                updateConnectionStatus('error', '🔴 Connection Failed');
+                connectBtn.disabled = false;
+            }
+        }
+        
+        async function disconnectWebSocket() {
+            if (websocket && isConnected) {
+                if (isRecording) {
+                    await stopRecording();
+                }
+                websocket.close();
+                websocket = null;
+                log('WebSocket connection closed by user', 'info');
+            }
+        }
+        
+        async function toggleRecording() {
+            if (!isRecording) {
+                await startRecording();
+            } else {
+                await stopRecording();
+            }
+        }
+        
+        async function startRecording() {
+            try {
+                if (!isConnected || !websocket) {
+                    log('Cannot start recording: WebSocket not connected', 'error');
+                    return;
+                }
+                
+                log('Requesting microphone access...', 'info');
+                
+                // Get audio stream
+                audioStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 44100
+                    }
+                });
+                
+                // Create MediaRecorder
+                mediaRecorder = new MediaRecorder(audioStream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+                
+                let audioChunks = [];
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                        log(`Audio chunk captured: ${event.data.size} bytes`, 'info');
+                        
+                        // Send audio chunk via WebSocket
+                        if (websocket && websocket.readyState === WebSocket.OPEN) {
+                            event.data.arrayBuffer().then(arrayBuffer => {
+                                websocket.send(arrayBuffer);
+                                log(`Sent audio chunk: ${arrayBuffer.byteLength} bytes`, 'sent');
+                            });
+                        }
+                    }
+                };
+                
+                mediaRecorder.onerror = function(event) {
+                    log(`MediaRecorder error: ${event.error}`, 'error');
+                };
+                
+                // Send start recording signal
+                websocket.send('START_RECORDING');
+                log('Sent START_RECORDING signal', 'sent');
+                
+                // Start recording with regular chunks
+                const intervalMs = parseInt(chunkIntervalInput.value) || 250;
+                mediaRecorder.start(intervalMs);
+                
+                // Update UI
+                isRecording = true;
+                recordingStartTime = Date.now();
+                recordBtn.textContent = '🛑 Stop Recording';
+                recordBtn.classList.add('recording');
+                updateConnectionStatus('recording', '🔴 Recording...');
+                recordingTimerDisplay.classList.add('visible');
+                
+                // Start timer
+                recordingTimer = setInterval(updateRecordingTimer, 100);
+                
+                log(`Recording started with ${intervalMs}ms chunk interval`, 'info');
+                
+            } catch (error) {
+                log(`Failed to start recording: ${error.message}`, 'error');
+                
+                if (error.name === 'NotAllowedError') {
+                    log('Microphone access denied. Please allow microphone access and try again.', 'error');
+                } else if (error.name === 'NotFoundError') {
+                    log('No microphone found. Please check your audio devices.', 'error');
+                }
+            }
+        }
+        
+        async function stopRecording() {
+            try {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                }
+                
+                if (audioStream) {
+                    audioStream.getTracks().forEach(track => track.stop());
+                    audioStream = null;
+                }
+                
+                // Send stop recording signal
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send('STOP_RECORDING');
+                    log('Sent STOP_RECORDING signal', 'sent');
+                }
+                
+                // Update UI
+                isRecording = false;
+                recordingStartTime = null;
+                recordBtn.textContent = '🎤 Start Recording';
+                recordBtn.classList.remove('recording');
+                updateConnectionStatus('connected', '🟢 Connected');
+                recordingTimerDisplay.classList.remove('visible');
+                
+                if (recordingTimer) {
+                    clearInterval(recordingTimer);
+                    recordingTimer = null;
+                }
+                
+                log('Recording stopped', 'info');
+                
+            } catch (error) {
+                log(`Error stopping recording: ${error.message}`, 'error');
+            }
+        }
+        
+        function clearLog() {
+            logContainer.innerHTML = '<div class="log-entry log-info">Log cleared.</div>';
+        }
+        
+        // Initialize
+        log('WebSocket Audio Streaming client initialized', 'info');
+        log('Click "Connect" to establish WebSocket connection', 'info');
+    </script>
+</body>
+</html>
