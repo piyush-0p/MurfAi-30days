@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AssemblyAI Real-time Streaming with Turn Detection</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            color: #333;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #4a5568;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+        
+        #connectBtn {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+        }
+        
+        #startBtn {
+            background: linear-gradient(45deg, #2196F3, #1976D2);
+            color: white;
+        }
+        
+        .stop-btn {
+            background: linear-gradient(45deg, #f44336, #d32f2f) !important;
+            color: white !important;
+        }
+        
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        
+        .status.connecting { background: #fff3cd; color: #856404; }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.recording { background: #cce5ff; color: #0066cc; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        
+        .transcript-box {
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            background: #f8f9fa;
+            margin-bottom: 20px;
+        }
+        
+        .transcript-item {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 5px;
+        }
+        
+        .transcript-partial {
+            background: #e3f2fd;
+            color: #1976d2;
+            font-style: italic;
+            border-left: 3px solid #2196F3;
+        }
+        
+        .transcript-final {
+            background: #e8f5e8;
+            color: #2e7d32;
+            font-weight: 500;
+            border-left: 3px solid #4CAF50;
+        }
+        
+        .transcript-turn-end {
+            background: #fff3e0;
+            color: #ef6c00;
+            font-weight: bold;
+            border-left: 3px solid #ff9800;
+            border: 2px dashed #ff9800;
+        }
+        
+        .turn-indicator {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        
+        .turn-end-indicator {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .info-box {
+            background: #e1f5fe;
+            border: 1px solid #b3e5fc;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .info-box h3 {
+            margin-top: 0;
+            color: #0277bd;
+        }
+        
+        .info-box ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        
+        .debug-section {
+            margin-top: 20px;
+        }
+        
+        pre {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 300px;
+            overflow: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 AssemblyAI Real-time Streaming with Turn Detection</h1>
+        
+        <div class="info-box">
+            <h3>🎯 Turn Detection Features</h3>
+            <ul>
+                <li><strong>Real-time streaming:</strong> Audio is processed in real-time</li>
+                <li><strong>Turn detection:</strong> Automatically detects when you stop speaking</li>
+                <li><strong>Partial transcripts:</strong> See transcription as you speak</li>
+                <li><strong>Final transcripts:</strong> Complete transcript at turn end</li>
+                <li><strong>Turn end notifications:</strong> Clear indication when your turn ends</li>
+            </ul>
+        </div>
+        
+        <div class="controls">
+            <button id="connectBtn" onclick="connectWebSocket()">Connect to Server</button>
+            <button id="startBtn" onclick="startStreaming()" disabled>Start Streaming</button>
+            <button id="stopBtn" onclick="stopStreaming()" disabled class="stop-btn">Stop Streaming</button>
+        </div>
+        
+        <div id="status" class="status connecting">Ready to connect...</div>
+        
+        <div class="transcript-box" id="transcriptBox">
+            <div style="color: #666; font-style: italic;">Real-time transcripts with turn detection will appear here...</div>
+        </div>
+        
+        <div class="debug-section">
+            <strong>Debug Log:</strong>
+            <pre id="debugLog"></pre>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let mediaRecorder = null;
+        let isStreaming = false;
+        let isConnected = false;
+        
+        const statusDiv = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const transcriptBox = document.getElementById('transcriptBox');
+        const debugLog = document.getElementById('debugLog');
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            debugLog.textContent += `[${timestamp}] ${message}\n`;
+            debugLog.scrollTop = debugLog.scrollHeight;
+            console.log(message);
+        }
+        
+        // Connect to WebSocket
+        function connectWebSocket() {
+            if (isConnected) {
+                log('Already connected');
+                return;
+            }
+            
+            updateStatus('Connecting to server...', 'connecting');
+            connectBtn.disabled = true;
+            
+            ws = new WebSocket('ws://localhost:8000/ws/stream-transcribe');
+            
+            ws.onopen = function() {
+                log('WebSocket connected to real-time streaming endpoint');
+                updateStatus('Connected to streaming server', 'connected');
+                isConnected = true;
+                connectBtn.textContent = 'Connected';
+                startBtn.disabled = false;
+            };
+            
+            ws.onmessage = function(event) {
+                log(`RECV: ${event.data}`);
+                handleStreamMessage(event.data);
+            };
+            
+            ws.onclose = function() {
+                log('WebSocket closed');
+                updateStatus('Disconnected from server', 'error');
+                isConnected = false;
+                connectBtn.disabled = false;
+                connectBtn.textContent = 'Connect to Server';
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+            };
+            
+            ws.onerror = function(error) {
+                log(`WebSocket error: ${error}`);
+                updateStatus('Connection error', 'error');
+            };
+        }
+        
+        function updateStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        function handleStreamMessage(message) {
+            const transcriptDiv = document.createElement('div');
+            transcriptDiv.className = 'transcript-item';
+            
+            if (message.startsWith('PARTIAL:')) {
+                transcriptDiv.className += ' transcript-partial';
+                const partialText = message.substring(8).trim(); // Remove "PARTIAL: "
+                transcriptDiv.innerHTML = `<span style="font-size: 12px; opacity: 0.7;">[PARTIAL]</span> ${partialText}`;
+                
+                // Remove previous partial transcripts to avoid clutter
+                const existingPartials = transcriptBox.querySelectorAll('.transcript-partial');
+                existingPartials.forEach(el => el.remove());
+                
+            } else if (message.startsWith('FINAL:')) {
+                transcriptDiv.className += ' transcript-final';
+                const finalText = message.substring(6).trim(); // Remove "FINAL: "
+                transcriptDiv.innerHTML = `<span style="font-size: 12px; opacity: 0.7;">[FINAL]</span> ${finalText}`;
+                
+            } else if (message.startsWith('TURN_END:')) {
+                transcriptDiv.className += ' transcript-turn-end';
+                const turnText = message.substring(9).trim(); // Remove "TURN_END: "
+                transcriptDiv.innerHTML = `
+                    <span class="turn-indicator turn-end-indicator">TURN END</span>
+                    <strong>Complete Turn:</strong> ${turnText}
+                `;
+                
+                // Clear any remaining partial transcripts
+                const existingPartials = transcriptBox.querySelectorAll('.transcript-partial');
+                existingPartials.forEach(el => el.remove());
+                
+            } else if (message === 'TURN_END_SILENCE') {
+                transcriptDiv.className += ' transcript-turn-end';
+                transcriptDiv.innerHTML = `
+                    <span class="turn-indicator turn-end-indicator">TURN END</span>
+                    <em>Turn ended (no speech detected)</em>
+                `;
+                
+                // Clear any remaining partial transcripts
+                const existingPartials = transcriptBox.querySelectorAll('.transcript-partial');
+                existingPartials.forEach(el => el.remove());
+                
+            } else if (message.startsWith('ERROR:')) {
+                transcriptDiv.style.background = '#ffebee';
+                transcriptDiv.style.color = '#c62828';
+                transcriptDiv.style.fontWeight = 'bold';
+                transcriptDiv.textContent = message;
+                
+            } else {
+                // System messages
+                transcriptDiv.style.background = '#f3e5f5';
+                transcriptDiv.style.color = '#7b1fa2';
+                transcriptDiv.textContent = message;
+            }
+            
+            // Remove placeholder text
+            if (transcriptBox.firstElementChild && transcriptBox.firstElementChild.style.fontStyle === 'italic') {
+                transcriptBox.firstElementChild.remove();
+            }
+            
+            transcriptBox.appendChild(transcriptDiv);
+            transcriptBox.scrollTop = transcriptBox.scrollHeight;
+        }
+        
+        async function startStreaming() {
+            if (!isConnected || isStreaming) {
+                return;
+            }
+            
+            try {
+                log('Requesting microphone access...');
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+                
+                log('Microphone access granted');
+                
+                // Set up MediaRecorder for streaming
+                const options = { mimeType: 'audio/webm' };
+                mediaRecorder = new MediaRecorder(stream, options);
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                        ws.send(event.data);
+                        log(`SENT: Audio chunk (${event.data.size} bytes)`);
+                    } else if (ws.readyState !== WebSocket.OPEN) {
+                        log('ERROR: WebSocket not open, cannot send audio data');
+                    }
+                };
+                
+                // Start recording with small time slices for real-time streaming
+                mediaRecorder.start(250); // Send chunks every 250ms
+                isStreaming = true;
+                
+                // Send start streaming command
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send("START_STREAMING");
+                    log('SENT: START_STREAMING command');
+                } else {
+                    log('ERROR: WebSocket not open, cannot send start command');
+                }
+                
+                updateStatus('🎤 Real-time streaming active - speak now!', 'recording');
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                
+                log('Real-time streaming started');
+                
+            } catch (error) {
+                log(`Error starting streaming: ${error.message}`);
+                updateStatus('Failed to access microphone', 'error');
+            }
+        }
+        
+        function stopStreaming() {
+            if (!isStreaming) {
+                return;
+            }
+            
+            log('Stopping real-time streaming...');
+            
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                
+                // Stop all tracks to release microphone
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+            }
+            
+            isStreaming = false;
+            
+            // Send stop streaming command
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("STOP_STREAMING");
+                log('SENT: STOP_STREAMING command');
+            } else {
+                log('ERROR: WebSocket not open, cannot send stop command');
+            }
+            
+            updateStatus('⏹️ Real-time streaming stopped', 'connected');
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            
+            log('Real-time streaming stopped');
+        }
+        
+        // Auto-connect when page loads
+        window.addEventListener('load', function() {
+            log('Page loaded - ready to connect');
+        });
+        
+        // Handle page unload
+        window.addEventListener('beforeunload', function() {
+            if (isStreaming) {
+                stopStreaming();
+            }
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>

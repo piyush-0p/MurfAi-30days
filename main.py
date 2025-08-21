@@ -11,6 +11,7 @@ from datetime import datetime
 import aiofiles
 import assemblyai as aai
 # Remove v3 imports - we'll use the working RealtimeTranscriber with SSL fix
+from assemblyai_streamer import AssemblyAIStreamer
 import asyncio
 import threading
 import queue
@@ -43,12 +44,102 @@ else:
 
 # Gemini API Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAGHYYINDcdMGZgE6VXCSGlKhKEIdcDjFg")
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent"
 
 if GEMINI_API_KEY != "your_gemini_api_key_here":
     print("✅ Gemini API key configured successfully")
 else:
     print("⚠️  Warning: Gemini API key not set. Please set GEMINI_API_KEY environment variable or update main.py")
+
+# LLM Streaming Response Function
+async def stream_llm_response(user_input: str, session_id: str = None) -> str:
+    """
+    Stream LLM response using Gemini API and accumulate the full response.
+    Returns the complete accumulated response.
+    """
+    if not user_input.strip():
+        return ""
+    
+    try:
+        print(f"🤖 Starting LLM streaming for input: '{user_input[:50]}...'")
+        
+        # Prepare the request payload for streaming
+        payload = {
+            "contents": [{
+                "parts": [{
+                    "text": f"You are a helpful AI assistant. Please respond to: {user_input}"
+                }]
+            }],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 500,
+                "topP": 0.8,
+                "topK": 40
+            }
+        }
+        
+        headers = {
+            "Content-Type": "application/json",
+        }
+        
+        # Add API key to URL
+        url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}&alt=sse"
+        
+        accumulated_response = ""
+        chunk_count = 0
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            async with client.stream(
+                "POST", 
+                url, 
+                headers=headers, 
+                json=payload
+            ) as response:
+                
+                if response.status_code != 200:
+                    error_text = await response.atext()
+                    print(f"❌ LLM API error {response.status_code}: {error_text}")
+                    return f"Error: Failed to get LLM response ({response.status_code})"
+                
+                print("🔄 Streaming LLM response...")
+                
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        # Parse Server-Sent Events format
+                        if line.startswith("data: "):
+                            chunk_count += 1
+                            data_str = line[6:]  # Remove "data: " prefix
+                            
+                            if data_str.strip() == "[DONE]":
+                                break
+                                
+                            try:
+                                chunk_data = json.loads(data_str)
+                                
+                                # Extract text from Gemini streaming response
+                                if "candidates" in chunk_data:
+                                    for candidate in chunk_data["candidates"]:
+                                        if "content" in candidate:
+                                            if "parts" in candidate["content"]:
+                                                for part in candidate["content"]["parts"]:
+                                                    if "text" in part:
+                                                        chunk_text = part["text"]
+                                                        accumulated_response += chunk_text
+                                                        print(f"🔄 Chunk {chunk_count}: {chunk_text}")
+                                                        
+                            except json.JSONDecodeError as e:
+                                print(f"⚠️ Failed to parse streaming chunk: {e}")
+                                continue
+        
+        print(f"✅ LLM streaming complete! Total chunks: {chunk_count}")
+        print(f"🎯 Complete LLM response: {accumulated_response}")
+        
+        return accumulated_response.strip()
+        
+    except Exception as e:
+        error_msg = f"❌ Error streaming LLM response: {str(e)}"
+        print(error_msg)
+        return f"Error: {str(e)}"
 
 # Audio conversion helper functions
 def convert_webm_to_pcm(webm_data: bytes) -> bytes:
@@ -1384,6 +1475,180 @@ async def websocket_transcribe_endpoint(websocket: WebSocket):
     finally:
         print(f"🔚 Transcription session {session_id} ended")
 
+
+@app.websocket("/ws/stream-transcribe")
+async def websocket_stream_transcribe_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time streaming transcription with turn detection using AssemblyAI.
+    Uses the custom AssemblyAIStreamer for real-time processing with turn detection.
+    """
+    await websocket.accept()
+    print("🔌 Real-time streaming WebSocket connection established")
+    
+    # Initialize session
+    session_id = str(uuid.uuid4())[:8]
+    print(f"🎯 Starting real-time streaming session: {session_id}")
+    
+    # Initialize AssemblyAI streamer
+    streamer = AssemblyAIStreamer(ASSEMBLYAI_API_KEY)
+    is_recording = False
+    current_turn_transcript = ""
+    
+    async def on_transcript(transcript_data):
+        """Handle transcript messages from AssemblyAI"""
+        nonlocal current_turn_transcript
+        
+        try:
+            if transcript_data.startswith("PARTIAL:"):
+                partial_text = transcript_data[8:].strip()  # Remove "PARTIAL: "
+                if partial_text and websocket.client_state.name == "CONNECTED":
+                    await websocket.send_text(f"PARTIAL: {partial_text}")
+                    print(f"📤 Sent partial: {partial_text}")
+                    
+            elif transcript_data.startswith("FINAL:"):
+                final_text = transcript_data[6:].strip()  # Remove "FINAL: "
+                if final_text:
+                    current_turn_transcript += " " + final_text if current_turn_transcript else final_text
+                    if websocket.client_state.name == "CONNECTED":
+                        await websocket.send_text(f"FINAL: {final_text}")
+                        print(f"📤 Sent final: {final_text}")
+                        
+        except Exception as e:
+            print(f"❌ Error sending transcript: {e}")
+    
+    async def on_turn_end(turn_transcript):
+        """Handle turn end events from AssemblyAI and trigger LLM streaming response"""
+        try:
+            # Use the accumulated transcript or the turn transcript
+            final_turn_text = turn_transcript or current_turn_transcript
+            
+            if final_turn_text.strip():
+                print(f"🔇 Turn ended with transcript: {final_turn_text}")
+                if websocket.client_state.name == "CONNECTED":
+                    # Send turn end notification with the complete transcript
+                    await websocket.send_text(f"TURN_END: {final_turn_text.strip()}")
+                    print(f"📤 Sent turn end: {final_turn_text.strip()}")
+                
+                # 🤖 NEW: Trigger LLM streaming response
+                print(f"🚀 Triggering LLM streaming response for: '{final_turn_text.strip()}'")
+                
+                # Start LLM streaming in the background (non-blocking)
+                asyncio.create_task(
+                    process_llm_streaming_response(final_turn_text.strip(), session_id)
+                )
+                
+            else:
+                print(f"🔇 Turn ended (no speech detected)")
+                if websocket.client_state.name == "CONNECTED":
+                    await websocket.send_text("TURN_END_SILENCE")
+                    print(f"📤 Sent turn end (silence)")
+            
+            # Reset for next turn
+            current_turn_transcript = ""
+            
+        except Exception as e:
+            print(f"❌ Error handling turn end: {e}")
+    
+    async def process_llm_streaming_response(user_input: str, session_id: str):
+        """Process LLM streaming response and accumulate the result"""
+        try:
+            print(f"🤖 [Session {session_id}] Processing LLM response for: '{user_input}'")
+            
+            # Stream the LLM response and accumulate
+            llm_response = await stream_llm_response(user_input, session_id)
+            
+            if llm_response:
+                print(f"✅ [Session {session_id}] LLM Response Complete:")
+                print(f"   User: {user_input}")
+                print(f"   Assistant: {llm_response}")
+                print("-" * 80)
+            else:
+                print(f"⚠️ [Session {session_id}] No LLM response generated")
+                
+        except Exception as e:
+            print(f"❌ [Session {session_id}] Error processing LLM response: {e}")
+    
+    try:
+        # Connect to AssemblyAI streaming service
+        connected = await streamer.connect(on_transcript=on_transcript, on_turn_end=on_turn_end)
+        
+        if not connected:
+            await websocket.send_text("ERROR: Failed to connect to AssemblyAI streaming service")
+            return
+        
+        # Send welcome message
+        try:
+            await websocket.send_text(f"🎯 Real-time streaming session {session_id} ready. Send START_STREAMING to begin.")
+            print(f"📤 Sent welcome message to client")
+        except Exception as send_error:
+            print(f"❌ Failed to send welcome message: {send_error}")
+        
+        while True:
+            try:
+                message = await websocket.receive()
+                
+                if message["type"] == "websocket.receive":
+                    if message.get("bytes") is not None:
+                        # Handle binary audio data
+                        if is_recording:
+                            audio_data = message["bytes"]
+                            print(f"🎤 Streaming audio chunk: {len(audio_data)} bytes")
+                            
+                            # Convert WebM to PCM if needed and send to AssemblyAI
+                            pcm_data = convert_webm_to_pcm(audio_data)
+                            if pcm_data:
+                                await streamer.send_audio(pcm_data)
+                            
+                    elif message.get("text") is not None:
+                        text_message = message["text"]
+                        print(f"📨 Control message: {text_message}")
+                        
+                        if text_message == "START_STREAMING":
+                            is_recording = True
+                            current_turn_transcript = ""  # Reset transcript
+                            try:
+                                await websocket.send_text("🎤 Real-time streaming started - speak now")
+                                print(f"📤 Sent to client: Streaming started")
+                            except Exception as send_error:
+                                print(f"❌ Failed to send start message: {send_error}")
+                            print(f"🎯 Real-time streaming session {session_id} started")
+                            
+                        elif text_message == "STOP_STREAMING":
+                            is_recording = False
+                            try:
+                                await websocket.send_text("⏹️ Real-time streaming stopped")
+                                print(f"📤 Sent to client: Streaming stopped")
+                            except Exception as send_error:
+                                print(f"❌ Failed to send stop message: {send_error}")
+                            print(f"⏹️ Real-time streaming session {session_id} stopped")
+                            
+                        else:
+                            try:
+                                await websocket.send_text(f"Echo: {text_message}")
+                            except Exception as send_error:
+                                print(f"❌ Failed to send echo: {send_error}")
+                
+                elif message["type"] == "websocket.disconnect":
+                    print(f"🔌 Client disconnected normally")
+                    break
+                    
+            except RuntimeError as e:
+                if "disconnect message has been received" in str(e):
+                    print(f"🔌 Client disconnected")
+                    break
+                else:
+                    raise e
+                            
+    except WebSocketDisconnect:
+        print("🔌 Real-time streaming WebSocket connection closed by client")
+    except Exception as e:
+        print(f"❌ Real-time streaming WebSocket error: {str(e)}")
+        
+    finally:
+        # Clean up AssemblyAI connection
+        if streamer:
+            await streamer.close()
+        print(f"🔚 Real-time streaming session {session_id} ended")
 
 
 if __name__ == "__main__":
