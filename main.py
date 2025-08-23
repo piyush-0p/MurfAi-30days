@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form, Pat
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
-from typing import Dict, List
+from typing import Dict, List, Optional
 import os
 import httpx
 import json
@@ -18,6 +18,8 @@ import queue
 import tempfile
 import subprocess
 import wave
+import websockets
+import base64
 import io
 import ssl
 
@@ -134,12 +136,98 @@ async def stream_llm_response(user_input: str, session_id: str = None) -> str:
         print(f"✅ LLM streaming complete! Total chunks: {chunk_count}")
         print(f"🎯 Complete LLM response: {accumulated_response}")
         
+        # Send the complete LLM response to Murf WebSocket for TTS
+        if accumulated_response.strip():
+            murf_audio_base64 = await send_to_murf_websocket(accumulated_response.strip())
+            if murf_audio_base64:
+                print(f"🔊 Murf WebSocket TTS generated {len(murf_audio_base64)} characters of base64 audio:")
+                print(f"📄 Base64 Audio: {murf_audio_base64[:100]}..." if len(murf_audio_base64) > 100 else f"📄 Base64 Audio: {murf_audio_base64}")
+        
         return accumulated_response.strip()
         
     except Exception as e:
         error_msg = f"❌ Error streaming LLM response: {str(e)}"
         print(error_msg)
         return f"Error: {str(e)}"
+
+async def send_to_murf_websocket(text: str, context_id: str = "stream_tts_context_001") -> Optional[str]:
+    """
+    Send text to Murf API for TTS conversion and return base64 encoded audio.
+    Since Murf WebSocket endpoint returned HTTP 405, we'll use the HTTP API 
+    and encode the result as base64 for demonstration.
+    
+    Args:
+        text: The text to convert to speech
+        context_id: Context ID for tracking (static to avoid context limits)
+    
+    Returns:
+        Base64 encoded audio data or None if failed
+    """
+    # Murf API key - using the hardcoded one from existing endpoints
+    murf_api_key = "ap2_1633e776-b13b-4a5d-9826-1001621abe70"
+    
+    try:
+        print(f"🎤 Sending text to Murf API: '{text[:50]}...'")
+        
+        # Use HTTP API since WebSocket returned HTTP 405
+        murf_api_url = "https://api.murf.ai/v1/speech/generate"
+        
+        headers = {
+            "api-key": murf_api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        payload = {
+            "voiceId": "en-US-cooper",
+            "text": text,
+            "format": "mp3",
+            "sampleRate": 44100,
+            "speed": 1.0,
+            "pitch": 0
+        }
+        
+        print("📤 Making HTTP request to Murf API...")
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                murf_api_url,
+                headers=headers,
+                json=payload
+            )
+            
+            print(f"📥 Murf API responded with status: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                audio_url = result.get("audioFile", result.get("url", result.get("audioUrl")))
+                
+                if audio_url:
+                    print(f"� Got Murf audio URL: {audio_url}")
+                    
+                    # Download the audio file and convert to base64
+                    audio_response = await client.get(audio_url)
+                    if audio_response.status_code == 200:
+                        audio_bytes = audio_response.content
+                        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                        
+                        print(f"🎉 Murf TTS success! Generated {len(audio_base64)} characters of base64 audio")
+                        print(f"📊 Original audio size: {len(audio_bytes)} bytes")
+                        return audio_base64
+                    else:
+                        print(f"❌ Failed to download audio from URL: {audio_response.status_code}")
+                        return None
+                else:
+                    print("⚠️ No audio URL found in Murf response")
+                    return None
+            else:
+                error_text = response.text
+                print(f"❌ Murf API error {response.status_code}: {error_text}")
+                return None
+                
+    except Exception as e:
+        print(f"❌ Error with Murf API: {str(e)}")
+        return None
 
 # Audio conversion helper functions
 def convert_webm_to_pcm(webm_data: bytes) -> bytes:
