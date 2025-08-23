@@ -54,9 +54,10 @@ else:
     print("⚠️  Warning: Gemini API key not set. Please set GEMINI_API_KEY environment variable or update main.py")
 
 # LLM Streaming Response Function
-async def stream_llm_response(user_input: str, session_id: str = None) -> str:
+async def stream_llm_response(user_input: str, session_id: str = None, websocket: WebSocket = None) -> str:
     """
     Stream LLM response using Gemini API and accumulate the full response.
+    If websocket is provided, will stream audio chunks to the client.
     Returns the complete accumulated response.
     """
     if not user_input.strip():
@@ -136,12 +137,17 @@ async def stream_llm_response(user_input: str, session_id: str = None) -> str:
         print(f"✅ LLM streaming complete! Total chunks: {chunk_count}")
         print(f"🎯 Complete LLM response: {accumulated_response}")
         
-        # Send the complete LLM response to Murf WebSocket for TTS
+        # Send the complete LLM response to Murf WebSocket for TTS and stream to client
         if accumulated_response.strip():
-            murf_audio_base64 = await send_to_murf_websocket(accumulated_response.strip())
-            if murf_audio_base64:
-                print(f"🔊 Murf WebSocket TTS generated {len(murf_audio_base64)} characters of base64 audio:")
-                print(f"📄 Base64 Audio: {murf_audio_base64[:100]}..." if len(murf_audio_base64) > 100 else f"📄 Base64 Audio: {murf_audio_base64}")
+            if websocket and websocket.client_state.name == "CONNECTED":
+                # Stream audio chunks to client
+                await send_to_murf_websocket(accumulated_response.strip(), websocket_client=websocket)
+            else:
+                # Log-only mode (no streaming to client)
+                murf_audio_base64 = await send_to_murf_websocket(accumulated_response.strip())
+                if murf_audio_base64:
+                    print(f"🔊 Murf WebSocket TTS generated {len(murf_audio_base64)} characters of base64 audio:")
+                    print(f"📄 Base64 Audio: {murf_audio_base64[:100]}..." if len(murf_audio_base64) > 100 else f"📄 Base64 Audio: {murf_audio_base64}")
         
         return accumulated_response.strip()
         
@@ -150,15 +156,100 @@ async def stream_llm_response(user_input: str, session_id: str = None) -> str:
         print(error_msg)
         return f"Error: {str(e)}"
 
-async def send_to_murf_websocket(text: str, context_id: str = "stream_tts_context_001") -> Optional[str]:
+async def stream_audio_chunks_to_client(audio_base64: str, websocket: WebSocket, chunk_size: int = 1024):
+    """
+    Stream base64 audio data to client in chunks and wait for acknowledgments.
+    
+    Args:
+        audio_base64: The complete base64 encoded audio data
+        websocket: WebSocket connection to the client
+        chunk_size: Size of each chunk to send (default 1024 characters)
+    """
+    try:
+        print(f"🔊 Starting audio stream to client: {len(audio_base64)} characters in chunks of {chunk_size}")
+        
+        # Send audio start notification
+        await websocket.send_json({
+            "type": "AUDIO_START",
+            "total_size": len(audio_base64),
+            "chunk_size": chunk_size,
+            "total_chunks": (len(audio_base64) + chunk_size - 1) // chunk_size
+        })
+        
+        # Send audio data in chunks
+        chunk_count = 0
+        for i in range(0, len(audio_base64), chunk_size):
+            chunk = audio_base64[i:i + chunk_size]
+            chunk_count += 1
+            
+            # Send chunk to client
+            await websocket.send_json({
+                "type": "AUDIO_CHUNK",
+                "chunk_index": chunk_count,
+                "data": chunk,
+                "is_final": i + chunk_size >= len(audio_base64)
+            })
+            
+            print(f"📤 Sent audio chunk {chunk_count}: {len(chunk)} characters")
+            
+            # Wait for client acknowledgment (with timeout)
+            try:
+                # Use a timeout to avoid hanging if client doesn't respond
+                ack_received = False
+                timeout_count = 0
+                max_timeout_ms = 100  # 100ms timeout per chunk
+                
+                while not ack_received and timeout_count < max_timeout_ms:
+                    try:
+                        # Check if there's an incoming message (non-blocking)
+                        ack_msg = await asyncio.wait_for(
+                            websocket.receive(),
+                            timeout=0.001  # 1ms check
+                        )
+                        
+                        if ack_msg.get("type") == "websocket.receive" and ack_msg.get("text"):
+                            ack_data = json.loads(ack_msg["text"])
+                            if (ack_data.get("type") == "AUDIO_CHUNK_ACK" and 
+                                ack_data.get("chunk_index") == chunk_count):
+                                ack_received = True
+                                print(f"✅ Client acknowledged audio chunk {chunk_count}")
+                                break
+                                
+                    except asyncio.TimeoutError:
+                        timeout_count += 1
+                        continue
+                    except Exception as ack_error:
+                        print(f"⚠️ Error waiting for chunk {chunk_count} acknowledgment: {ack_error}")
+                        break
+                
+                if not ack_received:
+                    print(f"⚠️ No acknowledgment received for chunk {chunk_count} (continuing anyway)")
+            
+            except Exception as chunk_error:
+                print(f"❌ Error processing chunk {chunk_count}: {chunk_error}")
+        
+        # Send completion notification
+        await websocket.send_json({
+            "type": "AUDIO_COMPLETE",
+            "total_chunks_sent": chunk_count
+        })
+        
+        print(f"🎉 Audio streaming complete! Sent {chunk_count} chunks to client")
+        
+    except Exception as e:
+        print(f"❌ Error streaming audio to client: {e}")
+
+async def send_to_murf_websocket(text: str, context_id: str = "stream_tts_context_001", websocket_client: WebSocket = None) -> Optional[str]:
     """
     Send text to Murf API for TTS conversion and return base64 encoded audio.
+    If websocket_client is provided, streams audio chunks to the client.
     Since Murf WebSocket endpoint returned HTTP 405, we'll use the HTTP API 
     and encode the result as base64 for demonstration.
     
     Args:
         text: The text to convert to speech
         context_id: Context ID for tracking (static to avoid context limits)
+        websocket_client: Optional WebSocket to stream chunks to client
     
     Returns:
         Base64 encoded audio data or None if failed
@@ -213,6 +304,11 @@ async def send_to_murf_websocket(text: str, context_id: str = "stream_tts_contex
                         
                         print(f"🎉 Murf TTS success! Generated {len(audio_base64)} characters of base64 audio")
                         print(f"📊 Original audio size: {len(audio_bytes)} bytes")
+                        
+                        # Stream to client if WebSocket provided
+                        if websocket_client and websocket_client.client_state.name == "CONNECTED":
+                            await stream_audio_chunks_to_client(audio_base64, websocket_client)
+                        
                         return audio_base64
                     else:
                         print(f"❌ Failed to download audio from URL: {audio_response.status_code}")
@@ -1622,7 +1718,7 @@ async def websocket_stream_transcribe_endpoint(websocket: WebSocket):
                 
                 # Start LLM streaming in the background (non-blocking)
                 asyncio.create_task(
-                    process_llm_streaming_response(final_turn_text.strip(), session_id)
+                    process_llm_streaming_response(final_turn_text.strip(), session_id, websocket)
                 )
                 
             else:
@@ -1637,13 +1733,13 @@ async def websocket_stream_transcribe_endpoint(websocket: WebSocket):
         except Exception as e:
             print(f"❌ Error handling turn end: {e}")
     
-    async def process_llm_streaming_response(user_input: str, session_id: str):
-        """Process LLM streaming response and accumulate the result"""
+    async def process_llm_streaming_response(user_input: str, session_id: str, websocket: WebSocket):
+        """Process LLM streaming response and accumulate the result, streaming audio to client"""
         try:
             print(f"🤖 [Session {session_id}] Processing LLM response for: '{user_input}'")
             
-            # Stream the LLM response and accumulate
-            llm_response = await stream_llm_response(user_input, session_id)
+            # Stream the LLM response and accumulate (passing WebSocket for audio streaming)
+            llm_response = await stream_llm_response(user_input, session_id, websocket)
             
             if llm_response:
                 print(f"✅ [Session {session_id}] LLM Response Complete:")

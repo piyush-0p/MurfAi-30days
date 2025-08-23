@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Streaming Test - MurfAI Challenge</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status-box {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status-connected { background-color: #d4edda; color: #155724; }
+        .status-disconnected { background-color: #f8d7da; color: #721c24; }
+        .status-recording { background-color: #d1ecf1; color: #0c5460; }
+        .audio-controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        .record-btn { background-color: #28a745; }
+        .record-btn:hover { background-color: #218838; }
+        .stop-btn { background-color: #dc3545; }
+        .stop-btn:hover { background-color: #c82333; }
+        .transcript-box {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .audio-streaming-box {
+            background-color: #e8f5e8;
+            border: 1px solid #28a745;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            min-height: 150px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .chunk-info {
+            margin: 5px 0;
+            padding: 3px 6px;
+            background-color: rgba(40, 167, 69, 0.1);
+            border-left: 3px solid #28a745;
+        }
+        .partial { color: #6c757d; font-style: italic; }
+        .final { color: #000; font-weight: bold; }
+        .turn-end { color: #007bff; font-weight: bold; }
+        .llm-response { color: #28a745; font-weight: bold; }
+        .error { color: #dc3545; font-weight: bold; }
+        .audio-chunk { color: #fd7e14; background-color: rgba(253, 126, 20, 0.1); }
+        .ack-sent { color: #6f42c1; }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #28a745;
+            transition: width 0.3s ease;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .stat-item {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔊 Audio Streaming Test - MurfAI Challenge</h1>
+        
+        <div id="connection-status" class="status-box status-disconnected">
+            🔴 Disconnected
+        </div>
+        
+        <div class="audio-controls">
+            <button id="connect-btn" onclick="connect()">📡 Connect WebSocket</button>
+            <button id="start-btn" onclick="startRecording()" disabled>🎤 Start Recording</button>
+            <button id="stop-btn" onclick="stopRecording()" disabled class="stop-btn">⏹️ Stop Recording</button>
+        </div>
+        
+        <div>
+            <h3>📝 Real-time Transcription</h3>
+            <div id="transcript" class="transcript-box">
+                <em>Transcription will appear here...</em>
+            </div>
+        </div>
+        
+        <div>
+            <h3>🔊 Audio Streaming Progress</h3>
+            <div class="progress-bar">
+                <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <div class="stats">
+                <div class="stat-item">
+                    <div id="total-chunks" class="stat-value">0</div>
+                    <div>Total Chunks</div>
+                </div>
+                <div class="stat-item">
+                    <div id="received-chunks" class="stat-value">0</div>
+                    <div>Received</div>
+                </div>
+                <div class="stat-item">
+                    <div id="total-size" class="stat-value">0</div>
+                    <div>Total Size (chars)</div>
+                </div>
+                <div class="stat-item">
+                    <div id="received-size" class="stat-value">0</div>
+                    <div>Received Size</div>
+                </div>
+            </div>
+        </div>
+        
+        <div>
+            <h3>🎵 Audio Streaming Log</h3>
+            <div id="audio-log" class="audio-streaming-box">
+                <em>Audio chunks will be logged here...</em>
+            </div>
+        </div>
+        
+        <div>
+            <h3>📊 Raw Transcript Log</h3>
+            <div id="log" class="transcript-box">
+                <em>Raw WebSocket messages will appear here...</em>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let websocket = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let audioStreamData = [];
+        let streamStats = {
+            totalChunks: 0,
+            receivedChunks: 0,
+            totalSize: 0,
+            receivedSize: 0
+        };
+
+        function connect() {
+            const wsUrl = `ws://localhost:8000/ws/stream-transcribe`;
+            websocket = new WebSocket(wsUrl);
+            
+            websocket.onopen = function(event) {
+                updateStatus('connected', '🟢 Connected to streaming service');
+                addLog('✅ WebSocket connected', 'final');
+                document.getElementById('connect-btn').disabled = true;
+                document.getElementById('start-btn').disabled = false;
+            };
+            
+            websocket.onmessage = function(event) {
+                try {
+                    // Try to parse as JSON first (for audio streaming)
+                    const data = JSON.parse(event.data);
+                    handleAudioStreamMessage(data);
+                } catch (e) {
+                    // Handle text messages (transcription)
+                    handleTextMessage(event.data);
+                }
+            };
+            
+            websocket.onerror = function(error) {
+                addLog(`❌ WebSocket error: ${error}`, 'error');
+                updateStatus('disconnected', '🔴 Connection error');
+            };
+            
+            websocket.onclose = function(event) {
+                updateStatus('disconnected', '🔴 Disconnected');
+                document.getElementById('connect-btn').disabled = false;
+                document.getElementById('start-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = true;
+            };
+        }
+        
+        function handleAudioStreamMessage(data) {
+            switch (data.type) {
+                case 'AUDIO_START':
+                    streamStats.totalChunks = data.total_chunks;
+                    streamStats.totalSize = data.total_size;
+                    streamStats.receivedChunks = 0;
+                    streamStats.receivedSize = 0;
+                    audioStreamData = [];
+                    
+                    addAudioLog(`🎵 Audio stream started: ${data.total_size} chars in ${data.total_chunks} chunks`);
+                    updateStreamStats();
+                    break;
+                    
+                case 'AUDIO_CHUNK':
+                    streamStats.receivedChunks++;
+                    streamStats.receivedSize += data.data.length;
+                    audioStreamData.push(data.data);
+                    
+                    addAudioLog(`📦 Chunk ${data.chunk_index}/${streamStats.totalChunks}: ${data.data.length} chars${data.is_final ? ' (FINAL)' : ''}`);
+                    
+                    // Send acknowledgment
+                    const ack = {
+                        type: 'AUDIO_CHUNK_ACK',
+                        chunk_index: data.chunk_index
+                    };
+                    websocket.send(JSON.stringify(ack));
+                    addAudioLog(`✅ Sent ACK for chunk ${data.chunk_index}`, 'ack-sent');
+                    
+                    updateStreamStats();
+                    updateProgress();
+                    
+                    console.log(`📸 Received chunk ${data.chunk_index}: ${data.data.substring(0, 50)}...`);
+                    break;
+                    
+                case 'AUDIO_COMPLETE':
+                    addAudioLog(`🎉 Audio streaming complete! Received ${data.total_chunks_sent} chunks`);
+                    addAudioLog(`📊 Final stats: ${streamStats.receivedSize}/${streamStats.totalSize} chars (${audioStreamData.length} chunks accumulated)`);
+                    
+                    // Log the complete base64 data (first 200 chars)
+                    const completeAudio = audioStreamData.join('');
+                    addAudioLog(`🔊 Complete base64 audio (${completeAudio.length} chars): ${completeAudio.substring(0, 200)}...`);
+                    
+                    console.log('🎵 Complete audio data received:', completeAudio.length, 'characters');
+                    console.log('📸 Audio acknowledgement complete - ready for LinkedIn screenshot!');
+                    break;
+            }
+        }
+        
+        function handleTextMessage(message) {
+            addLog(message);
+            
+            if (message.includes('🎯 Real-time streaming session')) {
+                updateStatus('connected', '🟢 Session ready');
+            } else if (message.startsWith('PARTIAL:')) {
+                const text = message.substring(8);
+                updateTranscript(text, 'partial');
+            } else if (message.startsWith('FINAL:')) {
+                const text = message.substring(6);
+                updateTranscript(text, 'final');
+            } else if (message.startsWith('TURN_END:')) {
+                const text = message.substring(9);
+                addTranscript(`\n🔇 Turn ended: ${text}`, 'turn-end');
+                addLog(`🔇 Turn ended with transcript: ${text}`, 'turn-end');
+            }
+        }
+        
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        sampleRate: 16000,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    } 
+                });
+                
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        websocket.send(event.data);
+                    }
+                };
+                
+                mediaRecorder.start(100); // Send data every 100ms
+                isRecording = true;
+                
+                // Tell server to start streaming
+                websocket.send('START_STREAMING');
+                
+                updateStatus('recording', '🎤 Recording...');
+                document.getElementById('start-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = false;
+                
+                addLog('🎤 Recording started', 'final');
+                
+            } catch (error) {
+                addLog(`❌ Microphone access denied: ${error}`, 'error');
+            }
+        }
+        
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+            }
+            
+            if (websocket) {
+                websocket.send('STOP_STREAMING');
+            }
+            
+            isRecording = false;
+            updateStatus('connected', '🟢 Connected');
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('stop-btn').disabled = true;
+            
+            addLog('⏹️ Recording stopped', 'final');
+        }
+        
+        function updateStatus(status, message) {
+            const statusDiv = document.getElementById('connection-status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status-box status-${status}`;
+        }
+        
+        function updateTranscript(text, type) {
+            const transcriptDiv = document.getElementById('transcript');
+            
+            if (type === 'partial') {
+                // Replace the last partial with new one
+                const lines = transcriptDiv.innerHTML.split('\n');
+                if (lines[lines.length - 1].includes('class="partial"')) {
+                    lines[lines.length - 1] = `<span class="${type}">${text}</span>`;
+                } else {
+                    lines.push(`<span class="${type}">${text}</span>`);
+                }
+                transcriptDiv.innerHTML = lines.join('\n');
+            } else {
+                // Add final text
+                transcriptDiv.innerHTML += `\n<span class="${type}">${text}</span>`;
+            }
+            
+            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+        }
+        
+        function addTranscript(text, type) {
+            const transcriptDiv = document.getElementById('transcript');
+            transcriptDiv.innerHTML += `\n<span class="${type}">${text}</span>`;
+            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+        }
+        
+        function addLog(message, type = '') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `\n<span class="${type}">[${timestamp}] ${message}</span>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function addAudioLog(message, type = 'audio-chunk') {
+            const audioLogDiv = document.getElementById('audio-log');
+            const timestamp = new Date().toLocaleTimeString();
+            audioLogDiv.innerHTML += `\n<div class="chunk-info ${type}">[${timestamp}] ${message}</div>`;
+            audioLogDiv.scrollTop = audioLogDiv.scrollHeight;
+        }
+        
+        function updateStreamStats() {
+            document.getElementById('total-chunks').textContent = streamStats.totalChunks;
+            document.getElementById('received-chunks').textContent = streamStats.receivedChunks;
+            document.getElementById('total-size').textContent = streamStats.totalSize.toLocaleString();
+            document.getElementById('received-size').textContent = streamStats.receivedSize.toLocaleString();
+        }
+        
+        function updateProgress() {
+            const percentage = streamStats.totalSize > 0 ? 
+                (streamStats.receivedSize / streamStats.totalSize) * 100 : 0;
+            document.getElementById('progress-fill').style.width = `${percentage}%`;
+        }
+        
+        // Auto-connect on page load for testing
+        window.addEventListener('load', function() {
+            setTimeout(connect, 500);
+        });
+    </script>
+</body>
+</html>
