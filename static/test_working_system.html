@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Working Voice AI System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .success { background: rgba(76, 175, 80, 0.7); }
+        .info { background: rgba(33, 150, 243, 0.7); }
+        .warning { background: rgba(255, 152, 0, 0.7); }
+        .error { background: rgba(244, 67, 54, 0.7); }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+            transition: all 0.3s;
+        }
+        button:hover { transform: scale(1.05); }
+        button:disabled { 
+            background: #666; 
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .record-button {
+            background: #f44336;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            font-size: 18px;
+        }
+        .record-button.recording {
+            background: #ff5722;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .transcript {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            min-height: 100px;
+            font-family: monospace;
+        }
+        
+        .audio-player {
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        audio {
+            width: 100%;
+            margin: 10px 0;
+        }
+        
+        .logs {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .chunk-display {
+            display: flex;
+            flex-wrap: wrap;
+            margin: 10px 0;
+        }
+        
+        .chunk {
+            width: 20px;
+            height: 20px;
+            margin: 2px;
+            background: #4CAF50;
+            border-radius: 50%;
+            opacity: 0.7;
+            transition: all 0.3s;
+        }
+        
+        .chunk.playing {
+            background: #ff5722;
+            transform: scale(1.2);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Working Voice AI System</h1>
+        <div id="status" class="status info">System initializing...</div>
+        
+        <div class="controls">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="recordBtn" class="record-button" onclick="toggleRecording()" disabled>🎤</button>
+            <button onclick="clearLogs()">Clear Logs</button>
+        </div>
+        
+        <div class="transcript">
+            <strong>Live Transcript:</strong>
+            <div id="transcript">Waiting for speech...</div>
+        </div>
+        
+        <div class="audio-player">
+            <strong>AI Response Audio:</strong>
+            <audio id="audioPlayer" controls style="width: 100%; margin: 10px 0;"></audio>
+            <div class="chunk-display" id="chunkDisplay"></div>
+        </div>
+        
+        <div class="logs" id="logs">
+            <div>System logs will appear here...</div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isConnected = false;
+        let isRecording = false;
+        let audioContext = null;
+        let audioQueue = [];
+        let isPlayingQueue = false;
+
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            logEntry.style.color = type === 'error' ? '#ff5722' : 
+                                  type === 'success' ? '#4CAF50' : 
+                                  type === 'warning' ? '#ff9800' : '#fff';
+            logs.appendChild(logEntry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+
+        async function connect() {
+            try {
+                updateStatus('Connecting to server...', 'info');
+                log('Connecting to WebSocket...');
+                
+                ws = new WebSocket('ws://localhost:8000/ws/stream-transcribe');
+                
+                ws.onopen = function() {
+                    isConnected = true;
+                    updateStatus('Connected! Ready to record', 'success');
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('recordBtn').disabled = false;
+                    log('WebSocket connected successfully', 'success');
+                };
+                
+                ws.onmessage = function(event) {
+                    log(`Received: ${event.data}`);
+                    
+                    if (event.data.startsWith('TRANSCRIPT:')) {
+                        const transcript = event.data.replace('TRANSCRIPT:', '');
+                        document.getElementById('transcript').textContent = transcript;
+                        log(`Transcript: ${transcript}`, 'success');
+                    }
+                    else if (event.data.startsWith('AUDIO_CHUNK:')) {
+                        const chunkData = event.data.replace('AUDIO_CHUNK:', '');
+                        handleAudioChunk(chunkData);
+                    }
+                    else if (event.data === 'TURN_END_SPEECH') {
+                        log('Turn ended - processing AI response...', 'warning');
+                        updateStatus('Processing AI response...', 'warning');
+                    }
+                    else if (event.data === 'TURN_END_SILENCE') {
+                        log('Turn ended - silence detected', 'warning');
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    log(`WebSocket error: ${error}`, 'error');
+                    updateStatus('Connection error', 'error');
+                };
+                
+                ws.onclose = function() {
+                    isConnected = false;
+                    updateStatus('Disconnected', 'error');
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('recordBtn').disabled = true;
+                    log('WebSocket connection closed', 'warning');
+                };
+                
+            } catch (error) {
+                log(`Connection error: ${error}`, 'error');
+                updateStatus('Connection failed', 'error');
+            }
+        }
+
+        function handleAudioChunk(chunkData) {
+            try {
+                log(`Received audio chunk: ${chunkData.length} chars`);
+                
+                // Add visual chunk indicator
+                const chunkDisplay = document.getElementById('chunkDisplay');
+                const chunk = document.createElement('div');
+                chunk.className = 'chunk';
+                chunkDisplay.appendChild(chunk);
+                
+                // Convert base64 to blob and play
+                const audioBlob = base64ToBlob(chunkData, 'audio/mpeg');
+                const audioUrl = URL.createObjectURL(audioBlob);
+                
+                // Add to play queue
+                audioQueue.push({
+                    url: audioUrl,
+                    element: chunk
+                });
+                
+                if (!isPlayingQueue) {
+                    playNextAudio();
+                }
+                
+            } catch (error) {
+                log(`Error handling audio chunk: ${error}`, 'error');
+            }
+        }
+
+        function base64ToBlob(base64, contentType) {
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            return new Blob([byteArray], { type: contentType });
+        }
+
+        async function playNextAudio() {
+            if (audioQueue.length === 0) {
+                isPlayingQueue = false;
+                return;
+            }
+
+            isPlayingQueue = true;
+            const { url, element } = audioQueue.shift();
+
+            try {
+                element.classList.add('playing');
+                
+                const audio = new Audio(url);
+                audio.onended = () => {
+                    element.classList.remove('playing');
+                    URL.revokeObjectURL(url);
+                    playNextAudio();
+                };
+                
+                audio.onerror = (error) => {
+                    log(`Audio playback error: ${error}`, 'error');
+                    element.classList.remove('playing');
+                    URL.revokeObjectURL(url);
+                    playNextAudio();
+                };
+                
+                await audio.play();
+                log('Playing audio chunk', 'success');
+                
+            } catch (error) {
+                log(`Error playing audio: ${error}`, 'error');
+                element.classList.remove('playing');
+                URL.revokeObjectURL(url);
+                playNextAudio();
+            }
+        }
+
+        async function toggleRecording() {
+            if (!isConnected) {
+                log('Not connected to server', 'error');
+                return;
+            }
+
+            if (!isRecording) {
+                await startRecording();
+            } else {
+                stopRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    } 
+                });
+
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                        // Send audio chunk to server
+                        ws.send(event.data);
+                        log(`Sent audio chunk: ${event.data.size} bytes`);
+                    }
+                };
+
+                mediaRecorder.onstop = function() {
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                // Send control message to start streaming
+                ws.send('START_STREAMING');
+                
+                mediaRecorder.start(100); // Send chunks every 100ms
+                isRecording = true;
+                
+                updateStatus('Recording... Speak now!', 'warning');
+                document.getElementById('recordBtn').textContent = '⏹️';
+                document.getElementById('recordBtn').classList.add('recording');
+                log('Recording started', 'success');
+
+            } catch (error) {
+                log(`Error starting recording: ${error}`, 'error');
+                updateStatus('Recording failed', 'error');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                ws.send('STOP_STREAMING');
+                
+                isRecording = false;
+                updateStatus('Processing...', 'info');
+                document.getElementById('recordBtn').textContent = '🎤';
+                document.getElementById('recordBtn').classList.remove('recording');
+                log('Recording stopped', 'success');
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '<div>System logs cleared...</div>';
+            document.getElementById('chunkDisplay').innerHTML = '';
+            audioQueue = [];
+        }
+
+        // Auto-connect on page load
+        window.onload = function() {
+            setTimeout(connect, 500);
+        };
+    </script>
+</body>
+</html>

@@ -1,14 +1,25 @@
 """
-Enhanced AssemblyAI real-time transcription with custom turn detection logic.
-Uses the reliable RealtimeTranscriber with turn detection based on silence periods.
+Enhanced AssemblyAI real-time transcription with Universal Streaming v3 API.
+Uses the new streaming.v3 client with built-in turn detection.
 """
 import asyncio
 import json
 import uuid
 import time
-from typing import Dict, Any, Callable, Optional
+import logging
+from typing import Dict, Any, Callable, Optional, Type
 import assemblyai as aai
-from assemblyai import RealtimeTranscriber, RealtimeError
+from assemblyai.streaming.v3 import (
+    BeginEvent,
+    StreamingClient,
+    StreamingClientOptions,
+    StreamingError,
+    StreamingEvents,
+    StreamingParameters,
+    StreamingSessionParameters,
+    TerminationEvent,
+    TurnEvent,
+)
 import threading
 
 class AssemblyAIStreamer:

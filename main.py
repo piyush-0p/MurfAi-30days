@@ -11,7 +11,7 @@ from datetime import datetime
 import aiofiles
 import assemblyai as aai
 # Remove v3 imports - we'll use the working RealtimeTranscriber with SSL fix
-from assemblyai_streamer import AssemblyAIStreamer
+from assemblyai_streamer_http import AssemblyAIHttpStreamer as AssemblyAIStreamer
 import asyncio
 import threading
 import queue
@@ -200,27 +200,30 @@ async def stream_audio_chunks_to_client(audio_base64: str, websocket: WebSocket,
                 max_timeout_ms = 100  # 100ms timeout per chunk
                 
                 while not ack_received and timeout_count < max_timeout_ms:
-                    try:
-                        # Check if there's an incoming message (non-blocking)
-                        ack_msg = await asyncio.wait_for(
-                            websocket.receive(),
-                            timeout=0.001  # 1ms check
-                        )
-                        
-                        if ack_msg.get("type") == "websocket.receive" and ack_msg.get("text"):
-                            ack_data = json.loads(ack_msg["text"])
-                            if (ack_data.get("type") == "AUDIO_CHUNK_ACK" and 
-                                ack_data.get("chunk_index") == chunk_count):
-                                ack_received = True
-                                print(f"✅ Client acknowledged audio chunk {chunk_count}")
-                                break
+                            try:
+                                # Check if there's an incoming message (non-blocking)
+                                ack_msg = await asyncio.wait_for(
+                                    websocket.receive(),
+                                    timeout=0.001  # 1ms check
+                                )
                                 
-                    except asyncio.TimeoutError:
-                        timeout_count += 1
-                        continue
-                    except Exception as ack_error:
-                        print(f"⚠️ Error waiting for chunk {chunk_count} acknowledgment: {ack_error}")
-                        break
+                                if ack_msg.get("type") == "websocket.receive" and ack_msg.get("text"):
+                                    ack_data = json.loads(ack_msg["text"])
+                                    if (ack_data.get("type") == "AUDIO_CHUNK_ACK" and 
+                                        ack_data.get("chunk_index") == chunk_count):
+                                        ack_received = True
+                                        print(f"✅ Client acknowledged audio chunk {chunk_count}")
+                                        break
+                                        
+                            except asyncio.TimeoutError:
+                                timeout_count += 1
+                                continue
+                            except WebSocketDisconnect:
+                                print(f"⚠️ Client disconnected during chunk {chunk_count} transmission")
+                                return
+                            except Exception as ack_error:
+                                print(f"⚠️ Error waiting for chunk {chunk_count} acknowledgment: {ack_error}")
+                                break
                 
                 if not ack_received:
                     print(f"⚠️ No acknowledgment received for chunk {chunk_count} (continuing anyway)")
@@ -439,6 +442,27 @@ async def serve_index():
     with open("static/index.html", "r") as file:
         html_content = file.read()
     return HTMLResponse(content=html_content)
+
+@app.get("/conversation", response_class=HTMLResponse)
+async def serve_conversation():
+    """Serve the complete conversational agent interface"""
+    with open("static/conversation.html", "r") as file:
+        html_content = file.read()
+    return HTMLResponse(content=html_content)
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "assemblyai": "configured" if ASSEMBLYAI_API_KEY != "your_assemblyai_api_key_here" else "not configured",
+            "gemini": "configured" if GEMINI_API_KEY != "your_gemini_api_key_here" else "not configured",
+            "murf": "configured",
+            "websockets": "available"
+        }
+    }
 
 @app.get("/api/hello")
 async def hello_world():
@@ -1659,6 +1683,368 @@ async def websocket_transcribe_endpoint(websocket: WebSocket):
     finally:
         print(f"🔚 Transcription session {session_id} ended")
 
+
+@app.websocket("/ws/conversation")
+async def websocket_conversation_endpoint(websocket: WebSocket):
+    """
+    Complete conversational agent WebSocket endpoint.
+    Handles: User speech -> Transcription -> LLM -> TTS -> Audio streaming
+    """
+    await websocket.accept()
+    print("🔌 Conversational Agent WebSocket connection established")
+    
+    # Initialize session
+    session_id = str(uuid.uuid4())[:8]
+    print(f"🎯 Starting conversational agent session: {session_id}")
+    
+    # Initialize chat history for this session
+    chat_sessions[session_id] = []
+    
+    # Initialize AssemblyAI streamer
+    streamer = AssemblyAIStreamer(ASSEMBLYAI_API_KEY)
+    is_recording = False
+    current_turn_transcript = ""
+    
+    async def on_transcript(transcript_data):
+        """Handle transcript messages from AssemblyAI"""
+        nonlocal current_turn_transcript
+        
+        try:
+            if transcript_data.startswith("PARTIAL:"):
+                partial_text = transcript_data[8:].strip()  # Remove "PARTIAL: "
+                if partial_text and websocket.client_state.name == "CONNECTED":
+                    await websocket.send_json({
+                        "type": "TRANSCRIPT_PARTIAL",
+                        "text": partial_text,
+                        "session_id": session_id
+                    })
+                    print(f"📤 Sent partial: {partial_text}")
+                    
+            elif transcript_data.startswith("FINAL:"):
+                final_text = transcript_data[6:].strip()  # Remove "FINAL: "
+                if final_text:
+                    current_turn_transcript += " " + final_text if current_turn_transcript else final_text
+                    if websocket.client_state.name == "CONNECTED":
+                        await websocket.send_json({
+                            "type": "TRANSCRIPT_FINAL",
+                            "text": final_text,
+                            "session_id": session_id
+                        })
+                        print(f"📤 Sent final: {final_text}")
+                        
+        except Exception as e:
+            print(f"❌ Error sending transcript: {e}")
+    
+    async def on_turn_end(turn_transcript):
+        """Handle turn end and trigger complete conversation flow"""
+        nonlocal current_turn_transcript
+        
+        try:
+            # Use the accumulated transcript or the turn transcript
+            final_turn_text = turn_transcript or current_turn_transcript
+            
+            if final_turn_text.strip():
+                print(f"🔇 Turn ended with transcript: '{final_turn_text}'")
+                
+                # Save user message to chat history
+                user_message = {"role": "user", "content": final_turn_text.strip(), "timestamp": datetime.now().isoformat()}
+                chat_sessions[session_id].append(user_message)
+                
+                if websocket.client_state.name == "CONNECTED":
+                    # Send turn end notification with complete transcript
+                    await websocket.send_json({
+                        "type": "TURN_END",
+                        "transcript": final_turn_text.strip(),
+                        "session_id": session_id
+                    })
+                    print(f"📤 Sent turn end: {final_turn_text.strip()}")
+                
+                # 🚀 Trigger complete conversation flow
+                print(f"🚀 Starting conversation flow for: '{final_turn_text.strip()}'")
+                asyncio.create_task(
+                    process_complete_conversation_flow(final_turn_text.strip(), session_id, websocket)
+                )
+                
+            else:
+                print(f"🔇 Turn ended (no speech detected)")
+                if websocket.client_state.name == "CONNECTED":
+                    await websocket.send_json({
+                        "type": "TURN_END_SILENCE",
+                        "session_id": session_id
+                    })
+            
+            # Reset for next turn
+            current_turn_transcript = ""
+            
+        except Exception as e:
+            print(f"❌ Error handling turn end: {e}")
+    
+    async def process_complete_conversation_flow(user_input: str, session_id: str, websocket: WebSocket):
+        """Complete conversation flow: LLM -> TTS -> Audio streaming"""
+        try:
+            print(f"🤖 [Session {session_id}] Starting complete conversation flow")
+            print(f"   User Input: '{user_input}'")
+            
+            # Step 1: Send to LLM and get streaming response
+            if websocket.client_state.name == "CONNECTED":
+                await websocket.send_json({
+                    "type": "LLM_THINKING",
+                    "message": "Processing your message...",
+                    "session_id": session_id
+                })
+            
+            # Get LLM response with context from chat history
+            context = build_conversation_context(session_id, user_input)
+            llm_response = await stream_llm_response_with_context(context, session_id)
+            
+            if not llm_response:
+                llm_response = "I apologize, but I encountered an error processing your request. Please try again."
+            
+            # Save assistant response to chat history
+            assistant_message = {"role": "assistant", "content": llm_response, "timestamp": datetime.now().isoformat()}
+            chat_sessions[session_id].append(assistant_message)
+            
+            print(f"✅ [Session {session_id}] LLM Response: '{llm_response}'")
+            
+            # Step 2: Send LLM response to client
+            if websocket.client_state.name == "CONNECTED":
+                await websocket.send_json({
+                    "type": "LLM_RESPONSE",
+                    "text": llm_response,
+                    "session_id": session_id
+                })
+                
+                # Step 3: Send to TTS and stream audio
+                await websocket.send_json({
+                    "type": "TTS_GENERATING",
+                    "message": "Converting to speech...",
+                    "session_id": session_id
+                })
+            
+            # Step 4: Generate TTS and stream to client
+            audio_base64 = await send_to_murf_websocket(llm_response, session_id, websocket)
+            
+            if audio_base64:
+                print(f"🎵 [Session {session_id}] TTS generated successfully, audio streamed to client")
+                if websocket.client_state.name == "CONNECTED":
+                    await websocket.send_json({
+                        "type": "CONVERSATION_COMPLETE",
+                        "session_id": session_id,
+                        "user_input": user_input,
+                        "assistant_response": llm_response
+                    })
+            else:
+                print(f"⚠️ [Session {session_id}] TTS generation failed")
+                if websocket.client_state.name == "CONNECTED":
+                    await websocket.send_json({
+                        "type": "TTS_ERROR",
+                        "message": "Audio generation failed",
+                        "session_id": session_id
+                    })
+            
+            print(f"✅ [Session {session_id}] Conversation flow complete")
+            print(f"   User: {user_input}")
+            print(f"   Assistant: {llm_response}")
+            print(f"   Audio: {'✅ Generated' if audio_base64 else '❌ Failed'}")
+            print("-" * 80)
+            
+        except Exception as e:
+            print(f"❌ [Session {session_id}] Error in conversation flow: {e}")
+            if websocket.client_state.name == "CONNECTED":
+                await websocket.send_json({
+                    "type": "ERROR",
+                    "message": f"Conversation error: {str(e)}",
+                    "session_id": session_id
+                })
+    
+    try:
+        # Connect to AssemblyAI streaming service
+        connected = await streamer.connect(on_transcript=on_transcript, on_turn_end=on_turn_end)
+        
+        if not connected:
+            await websocket.send_json({
+                "type": "ERROR",
+                "message": "Failed to connect to speech recognition service"
+            })
+            return
+        
+        # Send welcome message
+        await websocket.send_json({
+            "type": "WELCOME",
+            "message": f"🎯 Conversational agent session {session_id} ready. Send START_CONVERSATION to begin.",
+            "session_id": session_id
+        })
+        print(f"📤 Sent welcome message to client")
+        
+        while True:
+            try:
+                message = await websocket.receive()
+                
+                if message["type"] == "websocket.receive":
+                    if message.get("bytes") is not None:
+                        # Handle binary audio data
+                        if is_recording:
+                            audio_data = message["bytes"]
+                            print(f"🎤 Streaming audio chunk: {len(audio_data)} bytes")
+                            
+                            # Convert WebM to PCM if needed and send to AssemblyAI
+                            pcm_data = convert_webm_to_pcm(audio_data)
+                            if pcm_data:
+                                await streamer.send_audio(pcm_data)
+                            
+                    elif message.get("text") is not None:
+                        text_message = message["text"]
+                        print(f"📨 Control message: {text_message}")
+                        
+                        if text_message == "START_CONVERSATION":
+                            is_recording = True
+                            current_turn_transcript = ""
+                            await websocket.send_json({
+                                "type": "CONVERSATION_STARTED",
+                                "message": "🎤 Conversation started - speak now",
+                                "session_id": session_id
+                            })
+                            print(f"🎯 Conversation session {session_id} started")
+                            
+                        elif text_message == "STOP_CONVERSATION":
+                            is_recording = False
+                            await websocket.send_json({
+                                "type": "CONVERSATION_STOPPED",
+                                "message": "🛑 Conversation stopped",
+                                "session_id": session_id
+                            })
+                            print(f"🛑 Conversation session {session_id} stopped")
+                            
+                        elif text_message.startswith("TEXT_MESSAGE:"):
+                            # Handle direct text input (bypassing speech recognition)
+                            direct_text = text_message[13:].strip()  # Remove "TEXT_MESSAGE:"
+                            if direct_text:
+                                print(f"📝 Direct text input: {direct_text}")
+                                asyncio.create_task(
+                                    process_complete_conversation_flow(direct_text, session_id, websocket)
+                                )
+                        
+                        else:
+                            # Echo other messages
+                            await websocket.send_json({
+                                "type": "ECHO",
+                                "message": f"Echo: {text_message}",
+                                "session_id": session_id
+                            })
+                            
+            except WebSocketDisconnect:
+                print(f"🔌 Conversation session {session_id} disconnected")
+                break
+            except Exception as message_error:
+                print(f"❌ Error processing message: {message_error}")
+                # Don't continue processing if we have connection issues
+                if "disconnect" in str(message_error).lower():
+                    break
+                                
+    except WebSocketDisconnect:
+        print(f"🔌 Conversation session {session_id} disconnected normally")
+    except Exception as e:
+        print(f"❌ Conversation WebSocket error: {e}")
+    finally:
+        # Clean up
+        if 'streamer' in locals() and hasattr(streamer, 'close'):
+            try:
+                await streamer.close()
+            except Exception as cleanup_error:
+                print(f"⚠️ Error cleaning up streamer: {cleanup_error}")
+        # Keep chat history for potential reconnection
+        print(f"🧹 Conversation session {session_id} cleaned up")
+
+def build_conversation_context(session_id: str, user_input: str) -> str:
+    """Build conversation context from chat history"""
+    if session_id not in chat_sessions:
+        return user_input
+    
+    context_messages = []
+    # Get last 10 messages for context (to avoid token limits)
+    recent_messages = chat_sessions[session_id][-10:]
+    
+    for msg in recent_messages:
+        if msg["role"] == "user":
+            context_messages.append(f"User: {msg['content']}")
+        else:
+            context_messages.append(f"Assistant: {msg['content']}")
+    
+    # Add current user input
+    context_messages.append(f"User: {user_input}")
+    
+    return "\n".join(context_messages)
+
+async def stream_llm_response_with_context(context: str, session_id: str) -> str:
+    """Stream LLM response with conversation context"""
+    try:
+        print(f"🤖 Getting LLM response for session {session_id}")
+        
+        # Prepare the request payload for streaming with context
+        payload = {
+            "contents": [{
+                "parts": [{
+                    "text": f"You are a helpful AI assistant in a voice conversation. Please provide a natural, conversational response. Keep responses concise but helpful. Here's the conversation context:\n\n{context}\n\nPlease respond to the latest user message:"
+                }]
+            }],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 300,  # Shorter for voice conversation
+                "topP": 0.8,
+                "topK": 40
+            }
+        }
+        
+        headers = {
+            "Content-Type": "application/json",
+        }
+        
+        # Add API key to URL
+        url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}&alt=sse"
+        
+        accumulated_response = ""
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            async with client.stream(
+                "POST", 
+                url, 
+                headers=headers, 
+                json=payload
+            ) as response:
+                
+                if response.status_code != 200:
+                    error_text = await response.atext()
+                    print(f"❌ LLM API error {response.status_code}: {error_text}")
+                    return f"I apologize, but I'm having trouble processing your request right now."
+                
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            
+                            if data_str.strip() == "[DONE]":
+                                break
+                                
+                            try:
+                                chunk_data = json.loads(data_str)
+                                
+                                if "candidates" in chunk_data:
+                                    for candidate in chunk_data["candidates"]:
+                                        if "content" in candidate:
+                                            if "parts" in candidate["content"]:
+                                                for part in candidate["content"]["parts"]:
+                                                    if "text" in part:
+                                                        chunk_text = part["text"]
+                                                        accumulated_response += chunk_text
+                                                        
+                            except json.JSONDecodeError:
+                                continue
+        
+        return accumulated_response.strip()
+        
+    except Exception as e:
+        print(f"❌ Error getting LLM response: {e}")
+        return "I apologize, but I encountered an error. Could you please try again?"
 
 @app.websocket("/ws/stream-transcribe")
 async def websocket_stream_transcribe_endpoint(websocket: WebSocket):
