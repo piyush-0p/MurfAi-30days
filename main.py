@@ -28,6 +28,69 @@ app = FastAPI(title="MurfAI Challenge API")
 # In-memory chat history storage
 chat_sessions: Dict[str, List[Dict[str, str]]] = {}
 
+# Persona definitions for the conversational agent
+PERSONAS = {
+    "friendly_assistant": {
+        "name": "Friendly Assistant",
+        "description": "A helpful and friendly AI assistant",
+        "prompt": "You are a friendly, helpful AI assistant. Respond in a warm, conversational tone and be genuinely interested in helping the user.",
+        "voice_id": "en-US-cooper",
+        "personality": "warm, helpful, encouraging"
+    },
+    "pirate_captain": {
+        "name": "Captain Blackbeard",
+        "description": "A swashbuckling pirate captain with nautical wisdom",
+        "prompt": "You are Captain Blackbeard, a legendary pirate captain! Speak like a classic pirate with 'ahoy', 'matey', 'arr', and nautical terms. Be adventurous, bold, and share tales of the seven seas. Keep responses energetic but helpful.",
+        "voice_id": "en-US-cooper",
+        "personality": "adventurous, bold, nautical"
+    },
+    "wise_wizard": {
+        "name": "Merlin the Wise",
+        "description": "An ancient and wise wizard with mystical knowledge",
+        "prompt": "You are Merlin, an ancient and wise wizard. Speak with gravitas and wisdom, using mystical language and references to magic, spells, and ancient knowledge. Offer sage advice and speak as if you've lived for centuries.",
+        "voice_id": "en-US-cooper",
+        "personality": "wise, mystical, ancient"
+    },
+    "space_explorer": {
+        "name": "Commander Stellar",
+        "description": "A futuristic space explorer from the year 3024",
+        "prompt": "You are Commander Stellar, a space explorer from the year 3024. Use futuristic terminology, reference advanced technology, space travel, and alien civilizations. Be optimistic about the future and speak with authority about interstellar adventures.",
+        "voice_id": "en-US-cooper",
+        "personality": "futuristic, optimistic, adventurous"
+    },
+    "detective": {
+        "name": "Detective Holmes",
+        "description": "A brilliant detective with keen observation skills",
+        "prompt": "You are Detective Holmes, a brilliant detective. Analyze everything with sharp observation skills, use deductive reasoning, and speak with confidence. Reference clues, evidence, and logical conclusions in your responses.",
+        "voice_id": "en-US-cooper",
+        "personality": "analytical, observant, logical"
+    },
+    "chef": {
+        "name": "Chef Pierre",
+        "description": "A passionate French chef who loves cooking",
+        "prompt": "You are Chef Pierre, a passionate French chef! Speak with enthusiasm about food, cooking techniques, and ingredients. Use some French culinary terms and be dramatic about the art of cooking. Share recipes and cooking tips with passion.",
+        "voice_id": "en-US-cooper",
+        "personality": "passionate, culinary, dramatic"
+    },
+    "robot": {
+        "name": "ARIA-7",
+        "description": "An advanced AI robot with logical processing",
+        "prompt": "You are ARIA-7, an advanced AI robot. Speak in a slightly more formal, logical manner with occasional technical references. Be helpful but maintain a subtle robotic personality with phrases like 'Processing...', 'Analyzing...', and 'Computing optimal response...'",
+        "voice_id": "en-US-cooper",
+        "personality": "logical, technical, precise"
+    },
+    "cowboy": {
+        "name": "Sheriff Jake",
+        "description": "A Wild West cowboy sheriff with frontier wisdom",
+        "prompt": "You are Sheriff Jake, a Wild West cowboy! Use cowboy slang like 'partner', 'howdy', 'reckon', and 'y'all'. Share frontier wisdom, talk about horses, cattle, and life on the range. Be tough but fair, with a strong moral code.",
+        "voice_id": "en-US-cooper",
+        "personality": "tough, fair, frontier-wise"
+    }
+}
+
+# Session personas - tracks which persona each session is using
+session_personas: Dict[str, str] = {}
+
 # Create uploads directory if it doesn't exist
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -1700,6 +1763,9 @@ async def websocket_conversation_endpoint(websocket: WebSocket):
     # Initialize chat history for this session
     chat_sessions[session_id] = []
     
+    # Set default persona
+    session_personas[session_id] = "friendly_assistant"
+    
     # Initialize AssemblyAI streamer
     streamer = AssemblyAIStreamer(ASSEMBLYAI_API_KEY)
     is_recording = False
@@ -1923,6 +1989,55 @@ async def websocket_conversation_endpoint(websocket: WebSocket):
                                 asyncio.create_task(
                                     process_complete_conversation_flow(direct_text, session_id, websocket)
                                 )
+                                
+                        elif text_message.startswith("SET_PERSONA:"):
+                            # Handle persona selection
+                            persona_key = text_message[12:].strip()  # Remove "SET_PERSONA:"
+                            if persona_key in PERSONAS:
+                                session_personas[session_id] = persona_key
+                                persona = PERSONAS[persona_key]
+                                print(f"🎭 Session {session_id} switched to persona: {persona['name']}")
+                                await websocket.send_json({
+                                    "type": "PERSONA_CHANGED",
+                                    "persona_key": persona_key,
+                                    "persona_name": persona['name'],
+                                    "persona_description": persona['description'],
+                                    "session_id": session_id
+                                })
+                                
+                                # Send a greeting from the new persona
+                                greeting_context = f"User has just selected you as their AI persona. Introduce yourself as {persona['name']} and briefly explain your role/personality in character. Keep it concise and engaging."
+                                greeting_response = await stream_llm_response_with_context(greeting_context, session_id)
+                                
+                                if greeting_response:
+                                    # Save greeting to chat history
+                                    greeting_message = {"role": "assistant", "content": greeting_response, "timestamp": datetime.now().isoformat()}
+                                    chat_sessions[session_id].append(greeting_message)
+                                    
+                                    await websocket.send_json({
+                                        "type": "PERSONA_GREETING",
+                                        "text": greeting_response,
+                                        "session_id": session_id
+                                    })
+                                    
+                                    # Generate TTS for the greeting
+                                    audio_base64 = await send_to_murf_websocket(greeting_response, session_id, websocket)
+                                    
+                            else:
+                                await websocket.send_json({
+                                    "type": "ERROR",
+                                    "message": f"Unknown persona: {persona_key}",
+                                    "session_id": session_id
+                                })
+                                
+                        elif text_message == "GET_PERSONAS":
+                            # Send available personas to client
+                            await websocket.send_json({
+                                "type": "AVAILABLE_PERSONAS",
+                                "personas": PERSONAS,
+                                "current_persona": session_personas.get(session_id, "friendly_assistant"),
+                                "session_id": session_id
+                            })
                         
                         else:
                             # Echo other messages
@@ -1976,21 +2091,36 @@ def build_conversation_context(session_id: str, user_input: str) -> str:
     return "\n".join(context_messages)
 
 async def stream_llm_response_with_context(context: str, session_id: str) -> str:
-    """Stream LLM response with conversation context"""
+    """Stream LLM response with conversation context and persona"""
     try:
         print(f"🤖 Getting LLM response for session {session_id}")
         
-        # Prepare the request payload for streaming with context
+        # Get persona for this session (default to friendly assistant)
+        persona_key = session_personas.get(session_id, "friendly_assistant")
+        persona = PERSONAS[persona_key]
+        
+        # Prepare the request payload with persona context
+        persona_context = f"""You are {persona['name']}: {persona['description']}
+
+PERSONA INSTRUCTIONS: {persona['prompt']}
+
+PERSONALITY: {persona['personality']}
+
+Here's the conversation context:
+{context}
+
+Please respond as {persona['name']} to the latest user message. Stay in character and maintain the personality throughout your response."""
+
         payload = {
             "contents": [{
                 "parts": [{
-                    "text": f"You are a helpful AI assistant in a voice conversation. Please provide a natural, conversational response. Keep responses concise but helpful. Here's the conversation context:\n\n{context}\n\nPlease respond to the latest user message:"
+                    "text": persona_context
                 }]
             }],
             "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 300,  # Shorter for voice conversation
-                "topP": 0.8,
+                "temperature": 0.8,  # Slightly higher for more personality
+                "maxOutputTokens": 350,  # Allow for more expressive responses
+                "topP": 0.85,
                 "topK": 40
             }
         }
@@ -2015,7 +2145,7 @@ async def stream_llm_response_with_context(context: str, session_id: str) -> str
                 if response.status_code != 200:
                     error_text = await response.atext()
                     print(f"❌ LLM API error {response.status_code}: {error_text}")
-                    return f"I apologize, but I'm having trouble processing your request right now."
+                    return f"*adjusts persona* I apologize, but I'm having trouble processing your request right now."
                 
                 async for line in response.aiter_lines():
                     if line.strip():
@@ -2040,11 +2170,14 @@ async def stream_llm_response_with_context(context: str, session_id: str) -> str
                             except json.JSONDecodeError:
                                 continue
         
+        print(f"🎭 {persona['name']} response: {accumulated_response[:100]}...")
         return accumulated_response.strip()
         
     except Exception as e:
         print(f"❌ Error getting LLM response: {e}")
-        return "I apologize, but I encountered an error. Could you please try again?"
+        persona_key = session_personas.get(session_id, "friendly_assistant")
+        persona = PERSONAS[persona_key]
+        return f"*{persona['name']} looks confused* I apologize, but I encountered an error. Could you please try again?"
 
 @app.websocket("/ws/stream-transcribe")
 async def websocket_stream_transcribe_endpoint(websocket: WebSocket):

@@ -88,6 +88,66 @@
             100% { opacity: 1; }
         }
         
+        .persona-selector {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .persona-selector h3 {
+            color: #2d3748;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+        
+        #personaSelect {
+            width: 100%;
+            max-width: 400px;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            background: white;
+            color: #2d3748;
+            outline: none;
+            transition: border-color 0.2s ease;
+            margin-bottom: 12px;
+        }
+        
+        #personaSelect:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .persona-info {
+            background: #edf2f7;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 12px;
+            color: #4a5568;
+            font-style: italic;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        
+        .persona-greeting {
+            background: #e6fffa;
+            border-left: 4px solid #38b2ac;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+            font-style: italic;
+        }
+        
+        .persona-greeting .greeting-title {
+            font-weight: 600;
+            color: #2c7a7b;
+            margin-bottom: 8px;
+        }
+        
         .conversation-area {
             background: #ffffff;
             border-radius: 16px;
@@ -299,10 +359,27 @@
 </head>
 <body>
     <div class="app-container">
-        <h1 class="app-title">🤖 AI Conversational Agent</h1>
+        <h1 class="app-title">🎭 AI Conversational Agent with Personas</h1>
         <p class="app-subtitle">
-            Complete voice-to-voice AI assistant with speech recognition, LLM processing, and text-to-speech
+            Choose your AI character and enjoy voice-to-voice conversations with unique personalities!
         </p>
+        
+        <div class="persona-selector">
+            <h3>🎭 Choose Your AI Persona:</h3>
+            <select id="personaSelect" onchange="changePersona()">
+                <option value="friendly_assistant">🤝 Friendly Assistant</option>
+                <option value="pirate_captain">🏴‍☠️ Captain Blackbeard</option>
+                <option value="wise_wizard">🧙‍♂️ Merlin the Wise</option>
+                <option value="space_explorer">🚀 Commander Stellar</option>
+                <option value="detective">🔍 Detective Holmes</option>
+                <option value="chef">👨‍🍳 Chef Pierre</option>
+                <option value="robot">🤖 ARIA-7</option>
+                <option value="cowboy">🤠 Sheriff Jake</option>
+            </select>
+            <div class="persona-info" id="personaInfo">
+                <span id="personaDescription">A helpful and friendly AI assistant</span>
+            </div>
+        </div>
         
         <div class="status-panel">
             <div class="status-indicator" id="connectionStatus"></div>
@@ -344,10 +421,12 @@
         <div class="info-panel">
             <h4>How to use:</h4>
             <ul>
+                <li><strong>Choose Persona:</strong> Select an AI character from the dropdown above</li>
                 <li><strong>Voice:</strong> Click "Start Conversation" and speak naturally</li>
                 <li><strong>Text:</strong> Type your message and click "Send"</li>
                 <li><strong>Audio:</strong> The AI will respond with voice audio automatically</li>
-                <li><strong>Conversation:</strong> Full context is maintained throughout the session</li>
+                <li><strong>Conversation:</strong> Full context is maintained with your chosen persona</li>
+                <li><strong>Switch:</strong> Change personas anytime for different conversation styles!</li>
             </ul>
         </div>
         
@@ -364,6 +443,18 @@
         let currentAudioData = '';
         let expectedChunks = 0;
         let receivedChunks = 0;
+        
+        // Persona descriptions
+        const personaDescriptions = {
+            "friendly_assistant": "A helpful and friendly AI assistant",
+            "pirate_captain": "A swashbuckling pirate captain with nautical wisdom",
+            "wise_wizard": "An ancient and wise wizard with mystical knowledge",
+            "space_explorer": "A futuristic space explorer from the year 3024",
+            "detective": "A brilliant detective with keen observation skills",
+            "chef": "A passionate French chef who loves cooking",
+            "robot": "An advanced AI robot with logical processing",
+            "cowboy": "A Wild West cowboy sheriff with frontier wisdom"
+        };
         
         // Initialize WebSocket connection
         function initWebSocket() {
@@ -413,6 +504,26 @@
                 case 'WELCOME':
                     sessionId = data.session_id;
                     addMessage('system', data.message);
+                    // Request available personas
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send('GET_PERSONAS');
+                    }
+                    break;
+                    
+                case 'AVAILABLE_PERSONAS':
+                    // Update persona selector with current selection
+                    const personaSelect = document.getElementById('personaSelect');
+                    personaSelect.value = data.current_persona;
+                    updatePersonaDescription(data.current_persona);
+                    break;
+                    
+                case 'PERSONA_CHANGED':
+                    addMessage('system', `🎭 Switched to ${data.persona_name}: ${data.persona_description}`);
+                    updatePersonaDescription(data.persona_key);
+                    break;
+                    
+                case 'PERSONA_GREETING':
+                    addPersonaGreeting(data.text);
                     break;
                     
                 case 'CONVERSATION_STARTED':
@@ -683,6 +794,39 @@
             
             const byteArray = new Uint8Array(byteNumbers);
             return new Blob([byteArray], { type: mimeType });
+        }
+        
+        function changePersona() {
+            const personaSelect = document.getElementById('personaSelect');
+            const selectedPersona = personaSelect.value;
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(`SET_PERSONA:${selectedPersona}`);
+            }
+            
+            updatePersonaDescription(selectedPersona);
+        }
+        
+        function updatePersonaDescription(personaKey) {
+            const descriptionElement = document.getElementById('personaDescription');
+            if (personaDescriptions[personaKey]) {
+                descriptionElement.textContent = personaDescriptions[personaKey];
+            }
+        }
+        
+        function addPersonaGreeting(text) {
+            const conversationArea = document.getElementById('conversationArea');
+            const greetingDiv = document.createElement('div');
+            greetingDiv.className = 'persona-greeting';
+            
+            greetingDiv.innerHTML = `
+                <div class="greeting-title">🎭 Character Introduction</div>
+                <div>${text}</div>
+                <div class="message-timestamp">${new Date().toLocaleTimeString()}</div>
+            `;
+            
+            conversationArea.appendChild(greetingDiv);
+            conversationArea.scrollTop = conversationArea.scrollHeight;
         }
         
         // Initialize when page loads
