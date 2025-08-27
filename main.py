@@ -22,6 +22,11 @@ import websockets
 import base64
 import io
 import ssl
+from datetime import datetime, timedelta
+import pytz
+from dateutil import parser
+import google.generativeai as genai
+from tavily import TavilyClient
 
 app = FastAPI(title="MurfAI Challenge API")
 
@@ -113,13 +118,346 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini
 
 if GEMINI_API_KEY != "your_gemini_api_key_here":
     print("✅ Gemini API key configured successfully")
+    # Configure Google Generative AI
+    genai.configure(api_key=GEMINI_API_KEY)
 else:
     print("⚠️  Warning: Gemini API key not set. Please set GEMINI_API_KEY environment variable or update main.py")
+
+# Tavily API Configuration (for web search)
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "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")
+tavily_client = None
+if TAVILY_API_KEY != "your_tavily_api_key_here":
+    try:
+        tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
+        print("✅ Tavily API key configured successfully")
+    except Exception as e:
+        print(f"⚠️  Warning: Tavily API configuration failed: {e}")
+else:
+    print("⚠️  Warning: Tavily API key not set. Web search will be disabled.")
+
+# OpenWeatherMap API Configuration (for weather)
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "your_weather_api_key_here")
+if WEATHER_API_KEY != "your_weather_api_key_here":
+    print("✅ Weather API key configured successfully")
+else:
+    print("⚠️  Warning: Weather API key not set. Weather queries will be disabled.")
+
+# Skills System - Define available skills for the AI agent
+AGENT_SKILLS = {
+    "web_search": {
+        "name": "Web Search",
+        "description": "Search the internet for current information, news, and facts",
+        "enabled": tavily_client is not None,
+        "function": "search_web"
+    },
+    "weather": {
+        "name": "Weather Information",
+        "description": "Get current weather and forecasts for any location",
+        "enabled": WEATHER_API_KEY != "your_weather_api_key_here",
+        "function": "get_weather"
+    },
+    "time_zone": {
+        "name": "Time & Date",
+        "description": "Get current time and date for any timezone",
+        "enabled": True,
+        "function": "get_time_info"
+    },
+    "calculator": {
+        "name": "Calculator",
+        "description": "Perform mathematical calculations and conversions",
+        "enabled": True,
+        "function": "calculate"
+    },
+    "word_games": {
+        "name": "Word Games",
+        "description": "Play word games, generate rhymes, and language puzzles",
+        "enabled": True,
+        "function": "word_games"
+    }
+}
+
+# Skills Implementation Functions
+async def search_web(query: str, max_results: int = 5) -> Dict:
+    """Search the web using Tavily API"""
+    if not tavily_client:
+        return {"error": "Web search is not available. API key not configured."}
+    
+    try:
+        print(f"🔍 Searching web for: {query}")
+        
+        # Use Tavily to search the web
+        response = tavily_client.search(
+            query=query,
+            search_depth="advanced",
+            max_results=max_results,
+            include_answer=True,
+            include_images=False,
+            include_raw_content=False
+        )
+        
+        return {
+            "success": True,
+            "query": query,
+            "answer": response.get("answer", ""),
+            "results": response.get("results", [])
+        }
+    except Exception as e:
+        print(f"❌ Web search error: {e}")
+        return {"error": f"Search failed: {str(e)}"}
+
+async def get_weather(location: str) -> Dict:
+    """Get weather information for a location"""
+    if WEATHER_API_KEY == "your_weather_api_key_here":
+        return {"error": "Weather service is not available. API key not configured."}
+    
+    try:
+        print(f"🌤️ Getting weather for: {location}")
+        
+        # Use OpenWeatherMap API
+        async with httpx.AsyncClient() as client:
+            # First get coordinates for the location
+            geo_url = f"http://api.openweathermap.org/geo/1.0/direct?q={location}&limit=1&appid={WEATHER_API_KEY}"
+            geo_response = await client.get(geo_url)
+            geo_data = geo_response.json()
+            
+            if not geo_data:
+                return {"error": f"Location '{location}' not found"}
+            
+            lat = geo_data[0]["lat"]
+            lon = geo_data[0]["lon"]
+            city_name = geo_data[0]["name"]
+            country = geo_data[0]["country"]
+            
+            # Get current weather
+            weather_url = f"http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric"
+            weather_response = await client.get(weather_url)
+            weather_data = weather_response.json()
+            
+            return {
+                "success": True,
+                "location": f"{city_name}, {country}",
+                "temperature": weather_data["main"]["temp"],
+                "feels_like": weather_data["main"]["feels_like"],
+                "humidity": weather_data["main"]["humidity"],
+                "description": weather_data["weather"][0]["description"],
+                "wind_speed": weather_data["wind"]["speed"],
+                "visibility": weather_data.get("visibility", 0) / 1000  # Convert to km
+            }
+    except Exception as e:
+        print(f"❌ Weather error: {e}")
+        return {"error": f"Weather lookup failed: {str(e)}"}
+
+async def get_time_info(timezone: str = "UTC") -> Dict:
+    """Get current time and date information"""
+    try:
+        print(f"🕐 Getting time info for timezone: {timezone}")
+        
+        # Handle common timezone names
+        timezone_map = {
+            "new york": "America/New_York",
+            "los angeles": "America/Los_Angeles",
+            "london": "Europe/London",
+            "tokyo": "Asia/Tokyo",
+            "sydney": "Australia/Sydney",
+            "paris": "Europe/Paris",
+            "berlin": "Europe/Berlin",
+            "moscow": "Europe/Moscow",
+            "mumbai": "Asia/Kolkata",
+            "beijing": "Asia/Shanghai"
+        }
+        
+        tz_name = timezone_map.get(timezone.lower(), timezone)
+        
+        try:
+            tz = pytz.timezone(tz_name)
+        except:
+            tz = pytz.UTC
+            tz_name = "UTC"
+        
+        now = datetime.now(tz)
+        
+        return {
+            "success": True,
+            "timezone": tz_name,
+            "current_time": now.strftime("%H:%M:%S"),
+            "current_date": now.strftime("%Y-%m-%d"),
+            "day_of_week": now.strftime("%A"),
+            "formatted": now.strftime("%A, %B %d, %Y at %I:%M %p %Z")
+        }
+    except Exception as e:
+        print(f"❌ Time info error: {e}")
+        return {"error": f"Time lookup failed: {str(e)}"}
+
+async def calculate(expression: str) -> Dict:
+    """Perform mathematical calculations"""
+    try:
+        print(f"🧮 Calculating: {expression}")
+        
+        # Safety: Only allow safe mathematical operations
+        import re
+        import math
+        
+        # Remove any potentially dangerous characters
+        safe_expression = re.sub(r'[^0-9+\-*/().\s]', '', expression)
+        
+        # Allow some basic math functions
+        allowed_names = {
+            "abs": abs, "round": round, "min": min, "max": max,
+            "pow": pow, "sqrt": math.sqrt, "sin": math.sin, "cos": math.cos,
+            "tan": math.tan, "pi": math.pi, "e": math.e
+        }
+        
+        # Evaluate safely
+        result = eval(safe_expression, {"__builtins__": {}}, allowed_names)
+        
+        return {
+            "success": True,
+            "expression": expression,
+            "result": result
+        }
+    except Exception as e:
+        print(f"❌ Calculation error: {e}")
+        return {"error": f"Calculation failed: {str(e)}"}
+
+async def word_games(game_type: str, word: str = "") -> Dict:
+    """Play word games and generate language content"""
+    try:
+        print(f"🎮 Playing word game: {game_type} with word: {word}")
+        
+        if game_type.lower() == "rhyme":
+            # Simple rhyme generator
+            rhymes = []
+            word_ending = word[-2:].lower() if len(word) >= 2 else word.lower()
+            
+            common_rhymes = {
+                "ay": ["day", "play", "say", "way", "may"],
+                "at": ["cat", "hat", "bat", "rat", "mat"],
+                "an": ["man", "plan", "can", "ran", "fan"],
+                "ight": ["light", "night", "right", "sight", "bright"],
+                "ack": ["back", "pack", "track", "black", "crack"]
+            }
+            
+            rhymes = common_rhymes.get(word_ending, ["No common rhymes found"])
+            
+            return {
+                "success": True,
+                "game_type": "rhyme",
+                "word": word,
+                "rhymes": rhymes
+            }
+        elif game_type.lower() == "anagram":
+            # Simple anagram generator
+            from itertools import permutations
+            import random
+            
+            if len(word) <= 6:  # Only for short words to avoid too many combinations
+                anagrams = [''.join(p) for p in permutations(word.lower())]
+                # Return a random sample
+                sample_size = min(10, len(anagrams))
+                return {
+                    "success": True,
+                    "game_type": "anagram",
+                    "word": word,
+                    "anagrams": random.sample(anagrams, sample_size)
+                }
+            else:
+                return {"error": "Word too long for anagram generation"}
+        else:
+            return {"error": f"Unknown word game type: {game_type}"}
+            
+    except Exception as e:
+        print(f"❌ Word game error: {e}")
+        return {"error": f"Word game failed: {str(e)}"}
+
+async def execute_skill(skill_name: str, **kwargs) -> Dict:
+    """Execute a specific skill based on name"""
+    if skill_name not in AGENT_SKILLS:
+        return {"error": f"Skill '{skill_name}' not found"}
+    
+    skill = AGENT_SKILLS[skill_name]
+    if not skill["enabled"]:
+        return {"error": f"Skill '{skill_name}' is not enabled"}
+    
+    function_name = skill["function"]
+    
+    if function_name == "search_web":
+        return await search_web(kwargs.get("query", ""))
+    elif function_name == "get_weather":
+        return await get_weather(kwargs.get("location", ""))
+    elif function_name == "get_time_info":
+        return await get_time_info(kwargs.get("timezone", "UTC"))
+    elif function_name == "calculate":
+        return await calculate(kwargs.get("expression", ""))
+    elif function_name == "word_games":
+        return await word_games(kwargs.get("game_type", ""), kwargs.get("word", ""))
+    else:
+        return {"error": f"Function '{function_name}' not implemented"}
+
+async def detect_skill_request(user_input: str) -> Optional[Dict]:
+    """Detect if user input requires a specific skill and extract parameters"""
+    input_lower = user_input.lower()
+    
+    # Web search detection
+    search_triggers = ["search for", "look up", "find information about", "what is", "who is", "when did", "where is", "how to"]
+    for trigger in search_triggers:
+        if trigger in input_lower:
+            query = user_input
+            # Remove common prefixes
+            for prefix in ["search for ", "look up ", "find information about ", "what is ", "who is ", "when did ", "where is ", "how to "]:
+                if input_lower.startswith(prefix):
+                    query = user_input[len(prefix):]
+                    break
+            return {"skill": "web_search", "params": {"query": query}}
+    
+    # Weather detection
+    weather_triggers = ["weather", "temperature", "forecast", "how hot", "how cold", "raining", "sunny"]
+    if any(trigger in input_lower for trigger in weather_triggers):
+        # Try to extract location
+        location_indicators = ["in ", "for ", "at ", "weather in ", "temperature in "]
+        location = "current location"
+        for indicator in location_indicators:
+            if indicator in input_lower:
+                location = input_lower.split(indicator)[1].strip()
+                break
+        return {"skill": "weather", "params": {"location": location}}
+    
+    # Time detection
+    time_triggers = ["what time", "current time", "time in", "what's the time", "time zone"]
+    if any(trigger in input_lower for trigger in time_triggers):
+        timezone = "UTC"
+        if " in " in input_lower:
+            timezone = input_lower.split(" in ")[1].strip()
+        return {"skill": "time_zone", "params": {"timezone": timezone}}
+    
+    # Calculator detection
+    calc_triggers = ["calculate", "compute", "what is", "solve"]
+    math_symbols = ["+", "-", "*", "/", "=", "%"]
+    if any(trigger in input_lower for trigger in calc_triggers) and any(symbol in user_input for symbol in math_symbols):
+        # Extract mathematical expression
+        expression = user_input
+        for prefix in ["calculate ", "compute ", "what is ", "solve "]:
+            if input_lower.startswith(prefix):
+                expression = user_input[len(prefix):]
+                break
+        return {"skill": "calculator", "params": {"expression": expression}}
+    
+    # Word games detection
+    word_game_triggers = ["rhymes with", "anagram", "word game"]
+    if any(trigger in input_lower for trigger in word_game_triggers):
+        if "rhymes with" in input_lower:
+            word = input_lower.split("rhymes with")[1].strip()
+            return {"skill": "word_games", "params": {"game_type": "rhyme", "word": word}}
+        elif "anagram" in input_lower:
+            # Extract word after "anagram of" or similar
+            word = input_lower.replace("anagram", "").replace("of", "").strip()
+            return {"skill": "word_games", "params": {"game_type": "anagram", "word": word}}
+    
+    return None
 
 # LLM Streaming Response Function
 async def stream_llm_response(user_input: str, session_id: str = None, websocket: WebSocket = None) -> str:
     """
-    Stream LLM response using Gemini API and accumulate the full response.
+    Stream LLM response using Gemini API with skills integration.
     If websocket is provided, will stream audio chunks to the client.
     Returns the complete accumulated response.
     """
@@ -129,11 +467,42 @@ async def stream_llm_response(user_input: str, session_id: str = None, websocket
     try:
         print(f"🤖 Starting LLM streaming for input: '{user_input[:50]}...'")
         
+        # First, check if the user input requires a specific skill
+        skill_request = await detect_skill_request(user_input)
+        skill_result = None
+        
+        if skill_request:
+            print(f"🔧 Detected skill request: {skill_request['skill']}")
+            skill_result = await execute_skill(skill_request['skill'], **skill_request['params'])
+            print(f"📊 Skill result: {skill_result}")
+        
+        # Prepare the enhanced prompt with skill results and persona
+        persona_prompt = ""
+        if session_id and session_id in session_personas:
+            persona_key = session_personas[session_id]
+            persona = PERSONAS.get(persona_key, PERSONAS["friendly_assistant"])
+            persona_prompt = f"\n\nIMPORTANT: {persona['prompt']}"
+        
+        skill_context = ""
+        if skill_result:
+            if "error" in skill_result:
+                skill_context = f"\n\nNOTE: I tried to help with a specific request but encountered an issue: {skill_result['error']}. Please provide a helpful response anyway."
+            else:
+                skill_context = f"\n\nCONTEXT: I have some relevant information to help answer your question: {json.dumps(skill_result, indent=2)}\nPlease use this information naturally in your response."
+        
+        # List available skills if user asks about capabilities
+        capabilities_context = ""
+        if any(word in user_input.lower() for word in ["can you", "what can", "abilities", "skills", "help me with"]):
+            enabled_skills = [skill["name"] for skill in AGENT_SKILLS.values() if skill["enabled"]]
+            capabilities_context = f"\n\nAVAILABLE CAPABILITIES: I can help you with {', '.join(enabled_skills)}. Just ask naturally!"
+        
+        full_prompt = f"You are a helpful AI assistant with special capabilities.{persona_prompt}{skill_context}{capabilities_context}\n\nPlease respond to: {user_input}"
+        
         # Prepare the request payload for streaming
         payload = {
             "contents": [{
                 "parts": [{
-                    "text": f"You are a helpful AI assistant. Please respond to: {user_input}"
+                    "text": full_prompt
                 }]
             }],
             "generationConfig": {
@@ -1962,6 +2331,26 @@ async def websocket_conversation_endpoint(websocket: WebSocket):
                         text_message = message["text"]
                         print(f"📨 Control message: {text_message}")
                         
+                        # Try to parse JSON messages first
+                        try:
+                            if text_message.startswith('{') and text_message.endswith('}'):
+                                json_message = json.loads(text_message)
+                                message_type = json_message.get("type", "")
+                                
+                                # Handle JSON-formatted messages
+                                if message_type == "AUDIO_CHUNK_ACK":
+                                    # Don't echo audio acknowledgments - just log
+                                    print(f"📡 Audio chunk {json_message.get('chunk_index', 'unknown')} acknowledged")
+                                    continue
+                                elif message_type in ["AUDIO_START", "AUDIO_COMPLETE"]:
+                                    # Don't echo other technical audio messages
+                                    print(f"🔧 Audio message: {message_type}")
+                                    continue
+                                    
+                        except (json.JSONDecodeError, KeyError):
+                            # Not a JSON message, continue with regular text processing
+                            pass
+                        
                         if text_message == "START_CONVERSATION":
                             is_recording = True
                             current_turn_transcript = ""
@@ -2039,13 +2428,74 @@ async def websocket_conversation_endpoint(websocket: WebSocket):
                                 "session_id": session_id
                             })
                         
-                        else:
-                            # Echo other messages
+                        elif text_message == "GET_SKILLS":
+                            # Send available skills to client
+                            skills_info = []
+                            for skill_key, skill in AGENT_SKILLS.items():
+                                skills_info.append({
+                                    "key": skill_key,
+                                    "name": skill["name"],
+                                    "description": skill["description"],
+                                    "enabled": skill["enabled"]
+                                })
+                            
                             await websocket.send_json({
-                                "type": "ECHO",
-                                "message": f"Echo: {text_message}",
+                                "type": "SKILLS_LIST",
+                                "skills": skills_info,
                                 "session_id": session_id
                             })
+                            print(f"📋 Sent skills list to session {session_id}")
+                            
+                        elif text_message.startswith("USE_SKILL:"):
+                            # Handle manual skill execution
+                            skill_command = text_message[10:].strip()  # Remove "USE_SKILL:"
+                            
+                            try:
+                                # Parse skill command (format: "skill_name:param1=value1,param2=value2")
+                                if ":" in skill_command:
+                                    skill_name, params_str = skill_command.split(":", 1)
+                                    params = {}
+                                    if params_str.strip():
+                                        for param_pair in params_str.split(","):
+                                            if "=" in param_pair:
+                                                key, value = param_pair.split("=", 1)
+                                                params[key.strip()] = value.strip()
+                                else:
+                                    skill_name = skill_command
+                                    params = {}
+                                
+                                print(f"🔧 Manual skill execution: {skill_name} with params {params}")
+                                skill_result = await execute_skill(skill_name, **params)
+                                
+                                await websocket.send_json({
+                                    "type": "SKILL_RESULT",
+                                    "skill_name": skill_name,
+                                    "result": skill_result,
+                                    "session_id": session_id
+                                })
+                                
+                            except Exception as e:
+                                await websocket.send_json({
+                                    "type": "ERROR",
+                                    "message": f"Skill execution failed: {str(e)}",
+                                    "session_id": session_id
+                                })
+                                print(f"❌ Skill execution error: {e}")
+                        
+                        else:
+                            # Filter out technical acknowledgment messages - don't echo them
+                            if not (text_message.startswith('{"type":"AUDIO_CHUNK_ACK"') or 
+                                   text_message.startswith('{"type":"') or
+                                   'AUDIO_CHUNK_ACK' in text_message):
+                                # Only echo actual user messages, not technical messages
+                                await websocket.send_json({
+                                    "type": "ECHO", 
+                                    "message": f"Echo: {text_message}",
+                                    "session_id": session_id
+                                })
+                            else:
+                                # Just log technical messages to console
+                                print(f"🔧 Technical message ignored: {text_message[:50]}...")
                             
             except WebSocketDisconnect:
                 print(f"🔌 Conversation session {session_id} disconnected")
