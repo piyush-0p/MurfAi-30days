@@ -124,7 +124,7 @@ else:
     print("⚠️  Warning: Gemini API key not set. Please set GEMINI_API_KEY environment variable or update main.py")
 
 # Tavily API Configuration (for web search)
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "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")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "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")
 tavily_client = None
 if TAVILY_API_KEY != "your_tavily_api_key_here":
     try:
@@ -145,8 +145,14 @@ else:
 # Skills System - Define available skills for the AI agent
 AGENT_SKILLS = {
     "web_search": {
-        "name": "Web Search",
-        "description": "Search the internet for current information, news, and facts",
+        "name": "Professional Web Search",
+        "description": "Search the internet with AI-powered synthesis like Perplexity, including source citations",
+        "enabled": tavily_client is not None,
+        "function": "enhanced_web_search_with_synthesis"
+    },
+    "basic_search": {
+        "name": "Basic Web Search",
+        "description": "Simple web search for quick information lookup",
         "enabled": tavily_client is not None,
         "function": "search_web"
     },
@@ -177,33 +183,131 @@ AGENT_SKILLS = {
 }
 
 # Skills Implementation Functions
-async def search_web(query: str, max_results: int = 5) -> Dict:
-    """Search the web using Tavily API"""
+async def search_web(query: str, max_results: int = 8) -> Dict:
+    """Enhanced web search using Tavily API with professional formatting"""
     if not tavily_client:
         return {"error": "Web search is not available. API key not configured."}
     
     try:
-        print(f"🔍 Searching web for: {query}")
+        print(f"🔍 Professional web search for: {query}")
         
-        # Use Tavily to search the web
+        # Use Tavily to search the web with enhanced parameters
         response = tavily_client.search(
             query=query,
             search_depth="advanced",
             max_results=max_results,
             include_answer=True,
             include_images=False,
-            include_raw_content=False
+            include_raw_content=True,
+            include_domains=["wikipedia.org", "reuters.com", "bbc.com", "cnn.com", "nytimes.com", "techcrunch.com", "nature.com", "arxiv.org"]
         )
+        
+        # Enhanced result processing
+        search_results = []
+        for i, result in enumerate(response.get("results", []), 1):
+            search_results.append({
+                "rank": i,
+                "title": result.get("title", ""),
+                "url": result.get("url", ""),
+                "content": result.get("content", "")[:500] + "..." if len(result.get("content", "")) > 500 else result.get("content", ""),
+                "score": result.get("score", 0.0),
+                "published_date": result.get("published_date", ""),
+                "domain": result.get("url", "").split("//")[-1].split("/")[0] if result.get("url") else ""
+            })
         
         return {
             "success": True,
             "query": query,
             "answer": response.get("answer", ""),
-            "results": response.get("results", [])
+            "results": search_results,
+            "total_results": len(search_results),
+            "search_time": datetime.now().isoformat()
         }
     except Exception as e:
         print(f"❌ Web search error: {e}")
         return {"error": f"Search failed: {str(e)}"}
+
+async def enhanced_web_search_with_synthesis(query: str, max_results: int = 8) -> Dict:
+    """Professional web search with AI synthesis like Perplexity"""
+    search_result = await search_web(query, max_results)
+    
+    if "error" in search_result:
+        return search_result
+    
+    try:
+        # Combine search results for AI synthesis
+        sources_text = ""
+        citations = []
+        
+        for result in search_result["results"]:
+            sources_text += f"Source [{result['rank']}] ({result['domain']}): {result['content']}\n\n"
+            citations.append({
+                "id": result['rank'],
+                "title": result['title'],
+                "url": result['url'],
+                "domain": result['domain']
+            })
+        
+        # Create enhanced prompt for AI synthesis
+        synthesis_prompt = f"""You are a professional research assistant. Based on the following web search results, provide a comprehensive, well-structured response to the query: "{query}"
+
+SEARCH RESULTS:
+{sources_text}
+
+Please provide:
+1. A clear, comprehensive answer
+2. Use information from multiple sources when possible
+3. Reference sources using [1], [2], [3] format
+4. Maintain objectivity and accuracy
+5. If there are conflicting viewpoints, present them fairly
+
+Query: {query}
+
+Response:"""
+
+        # Get AI synthesis using Gemini
+        headers = {"Content-Type": "application/json"}
+        url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
+        
+        payload = {
+            "contents": [{
+                "parts": [{"text": synthesis_prompt}]
+            }],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 800,
+                "topP": 0.8,
+                "topK": 40
+            }
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                if "candidates" in response_data and response_data["candidates"]:
+                    synthesized_answer = response_data["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    synthesized_answer = search_result.get("answer", "Unable to synthesize response")
+            else:
+                synthesized_answer = search_result.get("answer", "Unable to synthesize response")
+        
+        return {
+            "success": True,
+            "query": query,
+            "synthesized_answer": synthesized_answer,
+            "original_answer": search_result.get("answer", ""),
+            "sources": citations,
+            "results": search_result["results"],
+            "total_results": search_result["total_results"],
+            "search_time": search_result["search_time"]
+        }
+        
+    except Exception as e:
+        print(f"❌ Enhanced search synthesis error: {e}")
+        # Fallback to basic search result
+        return search_result
 
 async def get_weather(location: str) -> Dict:
     """Get weather information for a location"""
@@ -380,7 +484,9 @@ async def execute_skill(skill_name: str, **kwargs) -> Dict:
     
     function_name = skill["function"]
     
-    if function_name == "search_web":
+    if function_name == "enhanced_web_search_with_synthesis":
+        return await enhanced_web_search_with_synthesis(kwargs.get("query", ""))
+    elif function_name == "search_web":
         return await search_web(kwargs.get("query", ""))
     elif function_name == "get_weather":
         return await get_weather(kwargs.get("location", ""))
@@ -422,11 +528,18 @@ async def detect_skill_request(user_input: str) -> Optional[Dict]:
         return {"skill": "weather", "params": {"location": location}}
     
     # Time detection
-    time_triggers = ["what time", "current time", "time in", "what's the time", "time zone"]
+    time_triggers = ["what time", "current time", "time in", "what's the time", "time zone", "get time", "get current time", "time and date", "current date", "get date", "date and time"]
     if any(trigger in input_lower for trigger in time_triggers):
         timezone = "UTC"
-        if " in " in input_lower:
-            timezone = input_lower.split(" in ")[1].strip()
+        # Look for timezone indicators
+        timezone_indicators = [" in ", " for ", " of ", " timezone "]
+        for indicator in timezone_indicators:
+            if indicator in input_lower:
+                # Get the part after the indicator
+                parts = input_lower.split(indicator)
+                if len(parts) > 1:
+                    timezone = parts[1].strip()
+                break
         return {"skill": "time_zone", "params": {"timezone": timezone}}
     
     # Calculator detection
@@ -590,7 +703,7 @@ async def stream_llm_response(user_input: str, session_id: str = None, websocket
 
 async def stream_audio_chunks_to_client(audio_base64: str, websocket: WebSocket, chunk_size: int = 1024):
     """
-    Stream base64 audio data to client in chunks and wait for acknowledgments.
+    Stream base64 audio data to client in chunks.
     
     Args:
         audio_base64: The complete base64 encoded audio data
@@ -624,44 +737,8 @@ async def stream_audio_chunks_to_client(audio_base64: str, websocket: WebSocket,
             
             print(f"📤 Sent audio chunk {chunk_count}: {len(chunk)} characters")
             
-            # Wait for client acknowledgment (with timeout)
-            try:
-                # Use a timeout to avoid hanging if client doesn't respond
-                ack_received = False
-                timeout_count = 0
-                max_timeout_ms = 100  # 100ms timeout per chunk
-                
-                while not ack_received and timeout_count < max_timeout_ms:
-                            try:
-                                # Check if there's an incoming message (non-blocking)
-                                ack_msg = await asyncio.wait_for(
-                                    websocket.receive(),
-                                    timeout=0.001  # 1ms check
-                                )
-                                
-                                if ack_msg.get("type") == "websocket.receive" and ack_msg.get("text"):
-                                    ack_data = json.loads(ack_msg["text"])
-                                    if (ack_data.get("type") == "AUDIO_CHUNK_ACK" and 
-                                        ack_data.get("chunk_index") == chunk_count):
-                                        ack_received = True
-                                        print(f"✅ Client acknowledged audio chunk {chunk_count}")
-                                        break
-                                        
-                            except asyncio.TimeoutError:
-                                timeout_count += 1
-                                continue
-                            except WebSocketDisconnect:
-                                print(f"⚠️ Client disconnected during chunk {chunk_count} transmission")
-                                return
-                            except Exception as ack_error:
-                                print(f"⚠️ Error waiting for chunk {chunk_count} acknowledgment: {ack_error}")
-                                break
-                
-                if not ack_received:
-                    print(f"⚠️ No acknowledgment received for chunk {chunk_count} (continuing anyway)")
-            
-            except Exception as chunk_error:
-                print(f"❌ Error processing chunk {chunk_count}: {chunk_error}")
+            # Add a small delay to prevent overwhelming the client
+            await asyncio.sleep(0.01)  # 10ms delay between chunks
         
         # Send completion notification
         await websocket.send_json({
@@ -2338,12 +2415,8 @@ async def websocket_conversation_endpoint(websocket: WebSocket):
                                 message_type = json_message.get("type", "")
                                 
                                 # Handle JSON-formatted messages
-                                if message_type == "AUDIO_CHUNK_ACK":
-                                    # Don't echo audio acknowledgments - just log
-                                    print(f"📡 Audio chunk {json_message.get('chunk_index', 'unknown')} acknowledged")
-                                    continue
-                                elif message_type in ["AUDIO_START", "AUDIO_COMPLETE"]:
-                                    # Don't echo other technical audio messages
+                                if message_type in ["AUDIO_START", "AUDIO_COMPLETE", "AUDIO_CHUNK_ACK"]:
+                                    # Don't echo technical audio messages
                                     print(f"🔧 Audio message: {message_type}")
                                     continue
                                     
@@ -2483,10 +2556,9 @@ async def websocket_conversation_endpoint(websocket: WebSocket):
                                 print(f"❌ Skill execution error: {e}")
                         
                         else:
-                            # Filter out technical acknowledgment messages - don't echo them
-                            if not (text_message.startswith('{"type":"AUDIO_CHUNK_ACK"') or 
-                                   text_message.startswith('{"type":"') or
-                                   'AUDIO_CHUNK_ACK' in text_message):
+                            # Filter out technical messages - don't echo them
+                            if not (text_message.startswith('{"type":"') and 
+                                   any(msg_type in text_message for msg_type in ["AUDIO_", "WELCOME", "ERROR"])):
                                 # Only echo actual user messages, not technical messages
                                 await websocket.send_json({
                                     "type": "ECHO", 

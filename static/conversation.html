@@ -81,6 +81,182 @@
         .skill-status.disabled {
             background: #fed7d7;
             color: #742a2a;
+        }
+        
+        /* Enhanced Search Results Styling */
+        .search-results-enhanced, .search-results-basic {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 15px 0;
+            max-width: 100%;
+        }
+        
+        .search-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .search-icon {
+            font-size: 1.2rem;
+        }
+        
+        .search-query {
+            font-weight: 600;
+            color: #2d3748;
+            flex-grow: 1;
+        }
+        
+        .search-meta {
+            font-size: 0.85rem;
+            color: #718096;
+        }
+        
+        .synthesized-answer, .basic-answer {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-left: 4px solid #4299e1;
+        }
+        
+        .synthesized-answer h4 {
+            color: #2d3748;
+            margin: 0 0 10px 0;
+            font-size: 1rem;
+        }
+        
+        .answer-content {
+            line-height: 1.6;
+            color: #4a5568;
+        }
+        
+        .citation {
+            background: #e6f3ff;
+            color: #2b6cb0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        
+        .citation:hover {
+            background: #bee3f8;
+        }
+        
+        .citation-number {
+            font-weight: 700;
+        }
+        
+        .sources-section {
+            margin-top: 20px;
+        }
+        
+        .sources-section h4 {
+            color: #2d3748;
+            margin: 0 0 15px 0;
+            font-size: 1rem;
+        }
+        
+        .sources-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 12px;
+        }
+        
+        .source-card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        
+        .source-card:hover {
+            border-color: #4299e1;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(66, 153, 225, 0.15);
+        }
+        
+        .source-number {
+            background: #4299e1;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            min-width: 30px;
+            text-align: center;
+        }
+        
+        .source-content {
+            flex-grow: 1;
+        }
+        
+        .source-title {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 4px;
+            font-size: 0.9rem;
+            line-height: 1.3;
+        }
+        
+        .source-domain {
+            color: #4299e1;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .results-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .result-item {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .result-item:hover {
+            border-color: #4299e1;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(66, 153, 225, 0.15);
+        }
+        
+        .result-title {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 8px;
+            font-size: 1rem;
+            line-height: 1.3;
+        }
+        
+        .result-content {
+            color: #4a5568;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            margin-bottom: 8px;
+        }
+        
+        .result-url {
+            color: #4299e1;
+            font-size: 0.85rem;
+            font-weight: 500;
         }idth=device-width, initial-scale=1.0">
     <title>AI Conversational Agent</title>
     <style>
@@ -331,6 +507,15 @@
             background: #c53030;
         }
         
+        .btn.time {
+            background: #38b2ac;
+        }
+        
+        .btn.time:hover:not(:disabled) {
+            background: #2c7a7b;
+            box-shadow: 0 8px 16px rgba(56, 178, 172, 0.3);
+        }
+        
         .text-input-panel {
             background: #f7fafc;
             border-radius: 12px;
@@ -497,6 +682,9 @@
             </button>
             <button class="btn stop" id="stopBtn" onclick="stopConversation()" disabled>
                 🛑 Stop Conversation
+            </button>
+            <button class="btn time" id="timeBtn" onclick="getCurrentTime()">
+                🕐 Get Current Time
             </button>
         </div>
         
@@ -681,14 +869,6 @@
                     receivedChunks++;
                     console.log(`📥 Received audio chunk ${data.chunk_index}/${expectedChunks}`);
                     
-                    // Send acknowledgment
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({
-                            type: 'AUDIO_CHUNK_ACK',
-                            chunk_index: data.chunk_index
-                        }));
-                    }
-                    
                     if (data.is_final) {
                         playAudioFromBase64(currentAudioData);
                     }
@@ -863,6 +1043,29 @@
             }
         }
         
+        function getCurrentTime() {
+            const now = new Date();
+            const options = {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZoneName: 'short'
+            };
+            
+            const formattedTime = now.toLocaleString('en-US', options);
+            const message = `Current Date and Time: ${formattedTime}`;
+            
+            // Add the time message to the chat
+            addMessage('system', message);
+            
+            // Also log it to console
+            console.log('🕐 Current time requested:', formattedTime);
+        }
+        
         function playAudioFromBase64(base64Data) {
             try {
                 const audioBlob = base64ToBlob(base64Data, 'audio/mpeg');
@@ -937,6 +1140,7 @@
             
             const skillIcons = {
                 'web_search': '🔍',
+                'basic_search': '🔎',
                 'weather': '🌤️',
                 'time_zone': '🕐',
                 'calculator': '🧮',
@@ -970,7 +1174,8 @@
         
         function demonstrateSkill(skillKey, skillName) {
             const examples = {
-                'web_search': 'search for latest AI news',
+                'web_search': 'What are the latest developments in AI technology?',
+                'basic_search': 'search for latest AI news',
                 'weather': 'what\'s the weather in New York?',
                 'time_zone': 'what time is it in Tokyo?',
                 'calculator': 'calculate 15 * 24 + 100',
@@ -987,8 +1192,98 @@
             const result = data.result;
             if (result.error) {
                 addMessage('system', `❌ Skill Error: ${result.error}`);
+            } else if (data.skill_name === 'web_search' && result.synthesized_answer) {
+                // Handle enhanced web search results with Perplexity-style formatting
+                displayEnhancedSearchResults(result);
+            } else if (data.skill_name === 'basic_search' && result.results) {
+                // Handle basic search results
+                displayBasicSearchResults(result);
             } else {
                 addMessage('system', `🛠️ Skill "${data.skill_name}" executed successfully`);
+            }
+        }
+        
+        function displayEnhancedSearchResults(result) {
+            const conversationArea = document.getElementById('conversationArea');
+            const searchDiv = document.createElement('div');
+            searchDiv.className = 'search-results-enhanced';
+            
+            // Create the enhanced search result display
+            searchDiv.innerHTML = `
+                <div class="search-header">
+                    <div class="search-icon">🔍</div>
+                    <div class="search-query">"${result.query}"</div>
+                    <div class="search-meta">${result.total_results} sources • ${new Date(result.search_time).toLocaleTimeString()}</div>
+                </div>
+                
+                <div class="synthesized-answer">
+                    <h4>AI-Synthesized Response:</h4>
+                    <div class="answer-content">${formatSearchAnswer(result.synthesized_answer)}</div>
+                </div>
+                
+                <div class="sources-section">
+                    <h4>Sources:</h4>
+                    <div class="sources-grid">
+                        ${result.sources.map(source => `
+                            <div class="source-card" onclick="window.open('${source.url}', '_blank')">
+                                <div class="source-number">[${source.id}]</div>
+                                <div class="source-content">
+                                    <div class="source-title">${source.title}</div>
+                                    <div class="source-domain">${source.domain}</div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            
+            conversationArea.appendChild(searchDiv);
+            conversationArea.scrollTop = conversationArea.scrollHeight;
+        }
+        
+        function displayBasicSearchResults(result) {
+            const conversationArea = document.getElementById('conversationArea');
+            const searchDiv = document.createElement('div');
+            searchDiv.className = 'search-results-basic';
+            
+            searchDiv.innerHTML = `
+                <div class="search-header">
+                    <div class="search-icon">🔍</div>
+                    <div class="search-query">"${result.query}"</div>
+                </div>
+                
+                <div class="basic-answer">
+                    <div class="answer-content">${result.answer}</div>
+                </div>
+                
+                <div class="results-list">
+                    ${result.results.slice(0, 5).map((res, index) => `
+                        <div class="result-item" onclick="window.open('${res.url}', '_blank')">
+                            <div class="result-title">${res.title}</div>
+                            <div class="result-content">${res.content || 'No preview available'}</div>
+                            <div class="result-url">${res.domain || res.url}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            conversationArea.appendChild(searchDiv);
+            conversationArea.scrollTop = conversationArea.scrollHeight;
+        }
+        
+        function formatSearchAnswer(answer) {
+            // Convert [1], [2], etc. references to clickable citations
+            return answer.replace(/\[(\d+)\]/g, '<span class="citation" onclick="scrollToCitation($1)">[<span class="citation-number">$1</span>]</span>');
+        }
+        
+        function scrollToCitation(num) {
+            const citation = document.querySelector(`[data-citation="${num}"]`);
+            if (citation) {
+                citation.scrollIntoView({ behavior: 'smooth' });
+                citation.style.backgroundColor = '#e6f3ff';
+                setTimeout(() => {
+                    citation.style.backgroundColor = '';
+                }, 2000);
             }
         }
         
