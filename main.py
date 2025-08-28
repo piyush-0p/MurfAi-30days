@@ -13,6 +13,10 @@ import assemblyai as aai
 # Remove v3 imports - we'll use the working RealtimeTranscriber with SSL fix
 from assemblyai_streamer_http import AssemblyAIHttpStreamer as AssemblyAIStreamer
 import asyncio
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 import threading
 import queue
 import tempfile
@@ -942,6 +946,21 @@ class LLMQueryResponse(BaseModel):
     model: str = None
     usage: dict = None
 
+class WeatherRequest(BaseModel):
+    latitude: float
+    longitude: float
+
+class WeatherResponse(BaseModel):
+    success: bool
+    location: str = None
+    temperature: float = None
+    feels_like: float = None
+    humidity: int = None
+    description: str = None
+    wind_speed: float = None
+    visibility: float = None
+    error: str = None
+
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -989,6 +1008,76 @@ async def get_data():
         ],
         "total": 3
     }
+
+@app.post("/api/weather", response_model=WeatherResponse)
+async def get_weather_api(request: WeatherRequest):
+    """Get weather information using coordinates"""
+    try:
+        if WEATHER_API_KEY == "your_weather_api_key_here":
+            return WeatherResponse(
+                success=False,
+                error="Weather service is not available. API key not configured."
+            )
+        
+        print(f"🌤️ Getting weather for coordinates: {request.latitude}, {request.longitude}")
+        print(f"🔑 Using API key: {WEATHER_API_KEY[:8]}...")
+        
+        # Use OpenWeatherMap API with coordinates
+        async with httpx.AsyncClient() as client:
+            # Get current weather using coordinates
+            weather_url = f"http://api.openweathermap.org/data/2.5/weather?lat={request.latitude}&lon={request.longitude}&appid={WEATHER_API_KEY}&units=metric"
+            print(f"🌍 Weather API URL: {weather_url}")
+            
+            weather_response = await client.get(weather_url)
+            print(f"📡 Weather API response status: {weather_response.status_code}")
+            
+            if weather_response.status_code != 200:
+                error_text = weather_response.text
+                print(f"❌ Weather API error response: {error_text}")
+                return WeatherResponse(
+                    success=False,
+                    error=f"Failed to get weather data from service: {error_text}"
+                )
+            
+            weather_data = weather_response.json()
+            print(f"📊 Weather API response: {weather_data}")
+            
+            # Check if the API returned an error in the JSON response
+            if "cod" in weather_data and weather_data["cod"] != 200:
+                error_msg = weather_data.get("message", "Unknown error from weather service")
+                print(f"❌ Weather API JSON error: {error_msg}")
+                return WeatherResponse(
+                    success=False,
+                    error=f"Weather service error: {error_msg}"
+                )
+            
+            # Check if required fields are present
+            if "main" not in weather_data or "weather" not in weather_data:
+                print(f"❌ Invalid weather data structure: {weather_data}")
+                return WeatherResponse(
+                    success=False,
+                    error="Invalid weather data received from service"
+                )
+            
+            result = WeatherResponse(
+                success=True,
+                location=f"{weather_data.get('name', 'Unknown')}, {weather_data.get('sys', {}).get('country', 'Unknown')}",
+                temperature=weather_data["main"]["temp"],
+                feels_like=weather_data["main"]["feels_like"],
+                humidity=weather_data["main"]["humidity"],
+                description=weather_data["weather"][0]["description"],
+                wind_speed=weather_data["wind"]["speed"],
+                visibility=weather_data.get("visibility", 0) / 1000  # Convert to km
+            )
+            print(f"✅ Weather API success: {result}")
+            return result
+            
+    except Exception as e:
+        print(f"❌ Weather API error: {e}")
+        return WeatherResponse(
+            success=False,
+            error=f"Weather service error: {str(e)}"
+        )
 
 
 @app.post("/api/tts/generate", response_model=TTSResponse)

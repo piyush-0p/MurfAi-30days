@@ -516,6 +516,15 @@
             box-shadow: 0 8px 16px rgba(56, 178, 172, 0.3);
         }
         
+        .btn.quote {
+            background: #9f7aea;
+        }
+        
+        .btn.quote:hover:not(:disabled) {
+            background: #805ad5;
+            box-shadow: 0 8px 16px rgba(159, 122, 234, 0.3);
+        }
+        
         .text-input-panel {
             background: #f7fafc;
             border-radius: 12px;
@@ -685,6 +694,9 @@
             </button>
             <button class="btn time" id="timeBtn" onclick="getCurrentTime()">
                 🕐 Get Current Time
+            </button>
+            <button class="btn quote" id="quoteBtn" onclick="getRandomQuote()">
+                💡 Get Random Quote
             </button>
         </div>
         
@@ -1064,6 +1076,34 @@
             
             // Also log it to console
             console.log('🕐 Current time requested:', formattedTime);
+        }
+        
+        function getRandomQuote() {
+            const quotes = [
+                "💫 The future belongs to those who believe in the beauty of their dreams. - Eleanor Roosevelt",
+                "🚀 Innovation distinguishes between a leader and a follower. - Steve Jobs",
+                "💪 Success is not final, failure is not fatal: it is the courage to continue that counts. - Winston Churchill",
+                "🌟 The only way to do great work is to love what you do. - Steve Jobs",
+                "🎯 Don't watch the clock; do what it does. Keep going. - Sam Levenson",
+                "✨ Believe you can and you're halfway there. - Theodore Roosevelt",
+                "🔥 The future starts today, not tomorrow. - Pope John Paul II",
+                "🌈 Life is what happens to you while you're busy making other plans. - John Lennon",
+                "⚡ The only impossible journey is the one you never begin. - Tony Robbins",
+                "� Creativity is intelligence having fun. - Albert Einstein",
+                "🏆 Excellence is not a skill, it's an attitude. - Ralph Marston",
+                "🌸 Be yourself; everyone else is already taken. - Oscar Wilde",
+                "🎪 Life is either a daring adventure or nothing at all. - Helen Keller",
+                "🎭 The best time to plant a tree was 20 years ago. The second best time is now. - Chinese Proverb",
+                "🎵 Music is the universal language of mankind. - Henry Wadsworth Longfellow"
+            ];
+            
+            const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+            
+            // Add the quote to the chat
+            addMessage('system', randomQuote);
+            
+            // Also log it to console
+            console.log('💡 Random quote generated:', randomQuote);
         }
         
         function playAudioFromBase64(base64Data) {
