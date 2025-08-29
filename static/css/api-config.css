@@ -1,0 +1,420 @@
+/* API Configuration Sidebar Styles */
+.api-config-sidebar {
+    position: fixed;
+    top: 0;
+    right: -420px; /* Start off-screen */
+    width: 400px;
+    height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    backdrop-filter: blur(20px);
+    box-shadow: -10px 0 40px rgba(0, 0, 0, 0.3);
+    z-index: 9999;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    overflow-y: auto;
+    border-radius: 20px 0 0 20px;
+}
+
+.api-config-sidebar.active {
+    right: 0; /* Slide in */
+    transform: translateZ(0); /* Hardware acceleration */
+}
+
+.api-config-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 20px 0 0 20px;
+    overflow: hidden;
+}
+
+.api-config-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 28px;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 75, 162, 0.9) 100%);
+    color: white;
+    position: relative;
+    overflow: hidden;
+}
+
+.api-config-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: url('data:image/svg+xml,<svg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"><g fill="none" fill-rule="evenodd"><g fill="%23ffffff" fill-opacity="0.05"><circle cx="30" cy="30" r="2"/></g></svg>') repeat;
+    z-index: 0;
+}
+
+.api-config-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    position: relative;
+    z-index: 1;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.close-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    position: relative;
+    z-index: 1;
+    backdrop-filter: blur(10px);
+}
+
+.close-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.05);
+}
+
+.api-config-body {
+    padding: 32px 28px;
+    flex-grow: 1;
+    overflow-y: auto;
+}
+
+.api-config-description {
+    margin-bottom: 28px;
+    color: #64748b;
+    line-height: 1.6;
+    font-size: 0.95rem;
+    padding: 16px;
+    background: rgba(102, 126, 234, 0.05);
+    border-radius: 12px;
+    border-left: 3px solid #667eea;
+}
+
+.api-config-section {
+    margin-bottom: 24px;
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(102, 126, 234, 0.1);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.api-config-section:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+    border-color: rgba(102, 126, 234, 0.2);
+}
+
+.api-config-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    transform: scaleY(0);
+    transition: transform 0.3s ease;
+}
+
+.api-config-section:hover::before {
+    transform: scaleY(1);
+}
+
+.api-config-section label {
+    display: block;
+    margin-bottom: 12px;
+}
+
+.api-name {
+    display: flex;
+    align-items: center;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 4px;
+    font-size: 1.1rem;
+    letter-spacing: -0.01em;
+}
+
+.api-purpose {
+    display: block;
+    font-size: 0.85rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
+.api-input-group {
+    display: flex;
+    align-items: center;
+    position: relative;
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 2px;
+    transition: all 0.3s ease;
+}
+
+.api-input-group:focus-within {
+    background: #f1f5f9;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.api-input {
+    flex-grow: 1;
+    padding: 14px 16px;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    background: transparent;
+    color: #1e293b;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    outline: none;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+}
+
+.api-input::placeholder {
+    color: #94a3b8;
+    font-weight: 400;
+}
+
+.api-input:focus {
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-visibility-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    margin-left: -44px;
+    width: 40px;
+    height: 40px;
+    z-index: 2;
+    opacity: 0.5;
+    transition: all 0.2s ease;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toggle-visibility-btn:hover {
+    opacity: 1;
+    background: rgba(102, 126, 234, 0.1);
+}
+
+.api-save-btn {
+    display: block;
+    width: 100%;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 16px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-top: 32px;
+    position: relative;
+    overflow: hidden;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+}
+
+.api-save-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+}
+
+.api-save-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 35px rgba(102, 126, 234, 0.4);
+}
+
+.api-save-btn:hover::before {
+    left: 100%;
+}
+
+.api-save-btn:active {
+    transform: translateY(0);
+    transition: transform 0.1s;
+}
+
+.api-config-status {
+    margin-top: 20px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    display: none;
+    position: relative;
+    overflow: hidden;
+}
+
+.api-config-status:not(:empty) {
+    display: block;
+    animation: slideInUp 0.3s ease;
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.api-status-success {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    color: #155724;
+    border: 2px solid #28a745;
+}
+
+.api-status-error {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    color: #721c24;
+    border: 2px solid #dc3545;
+}
+
+.api-status-info {
+    background: linear-gradient(135deg, #cce5ff 0%, #b8daff 100%);
+    color: #004085;
+    border: 2px solid #007bff;
+}
+
+.api-config-open-btn {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 75, 162, 0.9) 100%);
+    border: none;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.api-config-open-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    background: linear-gradient(135deg, rgba(102, 126, 234, 1) 0%, rgba(118, 75, 162, 1) 100%);
+}
+
+/* Scrollbar Styling */
+.api-config-sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.api-config-sidebar::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+}
+
+.api-config-sidebar::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    border-radius: 3px;
+}
+
+.api-config-sidebar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #5a6fd8, #6b42a6);
+}
+
+@media (max-width: 600px) {
+    .api-config-sidebar {
+        width: 100%;
+        right: -100%;
+        border-radius: 0;
+    }
+    
+    .api-config-content {
+        border-radius: 0;
+    }
+    
+    .api-config-open-btn {
+        font-size: 0.8rem;
+        padding: 8px 14px;
+        top: 16px;
+        right: 16px;
+    }
+    
+    .api-config-body {
+        padding: 24px 20px;
+    }
+    
+    .api-config-section {
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+}
+
+/* Additional enhancement styles */
+.api-config-section.focused {
+    border-color: rgba(102, 126, 234, 0.4);
+    box-shadow: 0 6px 25px rgba(102, 126, 234, 0.15);
+}
+
+.api-input.filled {
+    background: rgba(102, 126, 234, 0.05);
+    color: #1e293b;
+    font-weight: 600;
+}
+
+/* Loading state for save button */
+.api-save-btn.loading {
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.api-save-btn.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid transparent;
+    border-top: 2px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

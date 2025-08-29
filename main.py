@@ -146,6 +146,13 @@ if WEATHER_API_KEY != "your_weather_api_key_here":
 else:
     print("⚠️  Warning: Weather API key not set. Weather queries will be disabled.")
 
+# MurfAI API Configuration (for TTS)
+MURF_API_KEY = os.getenv("MURF_API_KEY", "ap2_1633e776-b13b-4a5d-9826-1001621abe70")
+if MURF_API_KEY and MURF_API_KEY != "your_murf_api_key_here":
+    print("✅ MurfAI API key configured successfully")
+else:
+    print("⚠️  Warning: MurfAI API key not set. Text-to-speech may be limited.")
+
 # Skills System - Define available skills for the AI agent
 AGENT_SKILLS = {
     "web_search": {
@@ -770,8 +777,8 @@ async def send_to_murf_websocket(text: str, context_id: str = "stream_tts_contex
     Returns:
         Base64 encoded audio data or None if failed
     """
-    # Murf API key - using the hardcoded one from existing endpoints
-    murf_api_key = "ap2_1633e776-b13b-4a5d-9826-1001621abe70"
+    # Use the global MurfAI API key
+    murf_api_key = MURF_API_KEY
     
     try:
         print(f"🎤 Sending text to Murf API: '{text[:50]}...'")
@@ -2508,9 +2515,23 @@ async def websocket_conversation_endpoint(websocket: WebSocket):
                                     # Don't echo technical audio messages
                                     print(f"🔧 Audio message: {message_type}")
                                     continue
+                                
+                                # Handle API configuration updates
+                                elif message_type == "API_CONFIG_UPDATE":
+                                    print(f"⚙️ API configuration update received")
+                                    # Import the API config manager
+                                    from app.services.api_config import ApiConfigManager
                                     
-                        except (json.JSONDecodeError, KeyError):
+                                    # Process API key updates
+                                    await ApiConfigManager.update_api_keys(
+                                        websocket=websocket, 
+                                        data=json_message.get("keys", {})
+                                    )
+                                    continue
+                                    
+                        except (json.JSONDecodeError, KeyError) as e:
                             # Not a JSON message, continue with regular text processing
+                            print(f"⚠️ Error parsing JSON message: {e}")
                             pass
                         
                         if text_message == "START_CONVERSATION":
