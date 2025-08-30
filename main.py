@@ -35,6 +35,15 @@ from dateutil import parser
 import google.generativeai as genai
 from tavily import TavilyClient
 
+# Try to import pydub for audio processing (fallback for ffmpeg)
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+    print("✅ Pydub available for audio processing")
+except ImportError:
+    PYDUB_AVAILABLE = False
+    print("⚠️ Pydub not available, will use ffmpeg fallback")
+
 app = FastAPI(title="MurfAI Challenge API")
 
 # In-memory chat history storage
@@ -858,6 +867,44 @@ def convert_webm_to_pcm(webm_data: bytes) -> bytes:
     Returns raw PCM bytes.
     """
     try:
+        # Try pydub first (better cloud compatibility)
+        if PYDUB_AVAILABLE:
+            print("🔊 Using pydub for audio conversion")
+            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_input:
+                temp_input.write(webm_data)
+                temp_input_path = temp_input.name
+            
+            try:
+                # Load with pydub
+                audio = AudioSegment.from_file(temp_input_path, format="webm")
+                
+                # Convert to 16kHz, 16-bit, mono
+                audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+                
+                # Export as raw PCM
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_output:
+                    temp_output_path = temp_output.name
+                    audio.export(temp_output_path, format="wav")
+                
+                # Read PCM data
+                with wave.open(temp_output_path, 'rb') as wav_file:
+                    pcm_data = wav_file.readframes(wav_file.getnframes())
+                
+                # Clean up
+                try:
+                    os.unlink(temp_input_path)
+                    os.unlink(temp_output_path)
+                except:
+                    pass
+                
+                return pcm_data
+                
+            except Exception as pydub_error:
+                print(f"⚠️ Pydub conversion failed: {pydub_error}, trying ffmpeg fallback")
+                # Fall through to ffmpeg
+        
+        # Fallback to ffmpeg
+        print("🔊 Using ffmpeg for audio conversion")
         with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_input:
             temp_input.write(webm_data)
             temp_input_path = temp_input.name
