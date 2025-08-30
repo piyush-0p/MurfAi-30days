@@ -1,0 +1,49 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "main.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/ws/(.*)",
+      "dest": "/main.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/main.py"
+    }
+  ],
+  "env": {
+    "PYTHON_VERSION": "3.9"
+  },
+  "functions": {
+    "main.py": {
+      "maxDuration": 60
+    }
+  },
+  "headers": [
+    {
+      "source": "/ws/(.*)",
+      "headers": [
+        {
+          "key": "Upgrade",
+          "value": "websocket"
+        },
+        {
+          "key": "Connection",
+          "value": "Upgrade"
+        }
+      ]
+    }
+  ]
+}
