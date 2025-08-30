@@ -14,6 +14,9 @@ import assemblyai as aai
 from assemblyai_streamer_http import AssemblyAIHttpStreamer as AssemblyAIStreamer
 import asyncio
 from dotenv import load_dotenv
+import math
+import random
+import re
 
 # Load environment variables from .env file
 load_dotenv()
