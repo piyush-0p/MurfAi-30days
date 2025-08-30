@@ -11,6 +11,11 @@ const ApiConfig = {
 
     // Initialize sidebar functionality
     init() {
+        // Disabled: API configuration is now integrated directly into the main interface
+        // The functionality has been moved to the conversation.html file
+        console.log('API Configuration is now integrated into the main interface');
+        return;
+        
         this.setupEventListeners();
         
         // Create the sidebar if it doesn't exist
@@ -307,5 +312,7 @@ const ApiConfig = {
 
 // Initialize API config when document is ready
 document.addEventListener('DOMContentLoaded', () => {
-    ApiConfig.init();
+    // Disabled: API configuration is now integrated directly into the main interface
+    // ApiConfig.init();
+    console.log('API Config sidebar initialization disabled - using integrated interface');
 });
