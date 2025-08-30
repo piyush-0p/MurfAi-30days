@@ -53,7 +53,10 @@ WEATHER_API_KEY = bcd62fa3b2f327b0f0461b73aaeb3e20
 ASSEMBLYAI_API_KEY = 6bf1c3f3202b4be3ba1fc699a6e43dd5
 GEMINI_API_KEY = AIzaSyAGHYYINDcdMGZgE6VXCSGlKhKEIdcDjFg
 MURF_API_KEY = ap2_1633e776-b13b-4a5d-9826-1001621abe70
+CO_API_KEY = dummy-key-for-tavily
 ```
+
+**Note**: The `CO_API_KEY` is set to a dummy value to prevent Tavily initialization errors. You don't need an actual Cohere API key unless you plan to use Tavily's hybrid RAG features.
 
 ## 🔧 Quick Fix for Render Deployment
 

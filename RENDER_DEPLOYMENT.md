@@ -70,6 +70,7 @@ GEMINI_API_KEY = your_gemini_api_key_here
 MURF_API_KEY = your_murf_api_key_here
 WEATHER_API_KEY = your_weather_api_key_here
 TAVILY_API_KEY = your_tavily_api_key_here
+CO_API_KEY = dummy-key-for-tavily
 PYTHON_VERSION = 3.9.18
 ```
 

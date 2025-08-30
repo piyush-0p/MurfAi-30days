@@ -33,6 +33,10 @@ from datetime import datetime, timedelta
 import pytz
 from dateutil import parser
 import google.generativeai as genai
+
+# Set a dummy Cohere API key to prevent tavily initialization error
+os.environ.setdefault('CO_API_KEY', 'dummy-key-for-tavily')
+
 from tavily import TavilyClient
 
 # Try to import pydub for audio processing (fallback for ffmpeg)
