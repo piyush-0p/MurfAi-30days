@@ -1027,8 +1027,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
-    """Serve the main HTML page"""
-    with open("static/index.html", "r") as file:
+    """Serve the main HTML page - updated conversation interface"""
+    with open("static/conversation.html", "r") as file:
         html_content = file.read()
     return HTMLResponse(content=html_content)
 
